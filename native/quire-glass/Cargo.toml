@@ -1,0 +1,19 @@
+[package]
+name = "quire-glass"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+# no dependencies on purpose. this talks to the objc runtime through its own C
+# entry points, which keeps the build to a couple of seconds and the dylib to a
+# few kilobytes.
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
