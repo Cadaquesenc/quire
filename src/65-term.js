@@ -125,7 +125,11 @@
     body.innerHTML =
       '<div class="q-term-out"></div>' +
       '<div class="q-term-input-row">' +
-      '<span class="q-term-prompt"></span>' +
+      // the path and the caret are two elements on purpose. the path ellipsises
+      // from the left, which needs direction:rtl, and a neutral character like
+      // "›" inside an rtl run gets mirrored and moved to the other end: the
+      // prompt read "‹ quire-demo/~" instead of "quire-demo/~ ›".
+      '<span class="q-term-prompt"></span><span class="q-term-caret">›</span>' +
       '<input class="q-term-input" spellcheck="false" autocomplete="off" placeholder="a command…">' +
       "</div>";
 
@@ -135,7 +139,7 @@
     liveInput = input;
 
     function render() {
-      prompt.textContent = shortCwd() + " ›";
+      prompt.textContent = shortCwd();
       out.innerHTML = state.lines.map((l) =>
         l.kind === "cmd"
           ? '<div class="q-term-line cmd"><span class="q-term-ps">›</span>' + Q.esc(l.text) + "</div>"

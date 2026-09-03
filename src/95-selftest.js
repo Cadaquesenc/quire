@@ -271,6 +271,11 @@
         original = orig == null ? "" : orig;
         const doc = original.replace(/\s*$/, "") + "\n\n```bash\n" + cmd + "\n```\n";
         window.File.reloadContent(doc, {});
+        // the block goes on the end of the document, and a button is only drawn
+        // for a fence that is actually on screen. a longer scratch document put
+        // the fence below the fold and the stage read "0 run buttons drawn".
+        const c = document.querySelector("content");
+        if (c) c.scrollTop = c.scrollHeight;
         // rendered, redrawn, scrolled, and asked to lay its buttons out. every
         // path that touches a fence gets a turn before the marker is checked.
         Q.runner.draw();
@@ -309,6 +314,130 @@
           });
       })
       .then((res) => restore().then(() => res), (e) => restore().then(() => { throw e; }));
+  }
+
+  // the frontmatter card, against the open scratch document.
+  //
+  // three things have to be true at once and the third is the one that would
+  // otherwise rot silently: the yaml parses, the card holds a row per key, and
+  // the raw <pre> is actually giving up its height to the card rather than the
+  // card being drawn on top of eight visible lines of yaml.
+  function frontmatterProbe() {
+    const path = Q.doc.path();
+    if (!TMP || !path || path.indexOf(TMP + "/") !== 0) {
+      return { ok: false, detail: "refusing: " + path + " is not under " + TMP };
+    }
+    let original = null;
+    const restore = () => {
+      try {
+        window.File.reloadContent(original == null ? "" : original, { fromDiskChange: true });
+        window.File.updateChangeCount(window.File.ChangeType.NSChangeCleared);
+      } catch (_) {}
+      return Q.guard.snapshot(path);
+    };
+    // a colon inside a quoted window title is the case the writer quotes for,
+    // so the reader has to survive it too
+    const yaml = [
+      "---",
+      "kind: sticky",
+      'session: "957a300b-a2d1-4643-9bc1-7e65192bb584"',
+      'cwd: "/Users/x/Code/quire"',
+      'window: "quire: pass 4"',
+      'resolved: "newest"',
+      'created: "' + new Date().toISOString() + '"',
+      "---",
+      "",
+    ].join("\n");
+
+    return Q.guard.readFile(path)
+      .then((orig) => {
+        original = orig == null ? "" : orig;
+        window.File.reloadContent(yaml + original.replace(/^\s*/, ""), {});
+        return later(500);
+      })
+      .then(() => {
+        Q.frontmatter.draw();
+        return later(300);
+      })
+      .then(() => {
+        Q.frontmatter.draw();
+        const pairs = Q.frontmatter.parse(
+          'kind: sticky\nwindow: "quire: pass 4"\nnope\ncwd: "/tmp"');
+        const title = pairs.filter((p) => p.key === "window")[0];
+        const el = Q.frontmatter.blockEl();
+        const card = document.querySelector("#q-fm-layer .q-fm-card");
+        const rows = document.querySelectorAll("#q-fm-layer .q-fm-row").length;
+        const on = document.body.classList.contains("q-fm-on");
+        const cs = el ? getComputedStyle(el) : null;
+        const cardH = card ? card.offsetHeight : 0;
+        const blockH = el ? el.getBoundingClientRect().height : 0;
+        // the raw block is transparent and exactly as tall as the card
+        const hidden = !!cs && cs.color.replace(/\s/g, "").indexOf("rgba(0,0,0,0)") === 0;
+        const shrunk = cardH > 0 && Math.abs(blockH - cardH) <= 2;
+        return {
+          ok: !!el && !!card && on && rows === 3 && hidden && shrunk &&
+              pairs.length === 3 && !!title && title.value === "quire: pass 4",
+          detail: pairs.length + " keys parsed off 4 lines, a quoted colon survived, " +
+                  rows + " rows drawn (session, cwd, window), raw yaml " +
+                  (hidden ? "transparent" : "STILL VISIBLE") + ", block " +
+                  Math.round(blockH) + "px against a " + cardH + "px card",
+        };
+      })
+      .then((res) => restore().then(() => res), (e) => restore().then(() => { throw e; }));
+  }
+
+  // the design system, asserted rather than admired.
+  //
+  // every interactive thing in the app is one of four shapes and every shape has
+  // one height and one radius. that is easy to write down and easy to lose: the
+  // first version of this chrome had five button paddings, three pill heights
+  // and radii of 3, 4, 7, 8, 9, 10 and 12px, all of them arrived at one feature
+  // at a time. so the controls are built off screen and measured.
+  function controlsProbe() {
+    const box = Q.el("div", { class: "q-probe-controls" });
+    box.style.cssText = "position:fixed;left:-9999px;top:0;display:flex";
+    box.innerHTML =
+      '<button class="q-btn">a</button>' +
+      '<button class="q-btn primary">b</button>' +
+      '<span class="q-pill">c</span>' +
+      '<span class="q-files-chip">d</span>' +
+      '<span class="q-git-act">e</span>' +
+      '<span class="q-sess-act">f</span>' +
+      '<span class="q-view-act">g</span>' +
+      '<span class="q-tag">h</span>' +
+      '<button class="q-run-btn" style="position:static">i</button>' +
+      '<span class="q-iconbtn">j</span>' +
+      '<input class="q-input">';
+    document.body.appendChild(box);
+    const px = (el, prop) => parseFloat(getComputedStyle(el).getPropertyValue(prop)) || 0;
+    const h = (sel) => Math.round(px(box.querySelector(sel), "height"));
+    const r = (sel) => Math.round(px(box.querySelector(sel), "border-top-left-radius"));
+
+    const pills = [".q-pill", ".q-files-chip", ".q-git-act", ".q-sess-act",
+                   ".q-view-act", ".q-tag", ".q-run-btn"];
+    const pillH = pills.map(h);
+    const btnH = [h(".q-btn"), h(".q-btn.primary"), h(".q-input")];
+    // the boxes are on the 6/10/14/18 scale; a pill is round by definition and
+    // is checked for being at least as round as it is tall instead.
+    const radii = [r(".q-btn"), r(".q-iconbtn"), r(".q-input")];
+    const scale = [6, 10, 14, 18];
+    const strays = radii.filter((v) => scale.indexOf(v) === -1);
+    // webkit hands back the *used* radius here, not the computed one, so a
+    // `border-radius: 999px` pill reads as half its own height rather than 999.
+    // that took a failing stage whose own detail line said it had passed.
+    const round = pills.every((s) => r(s) * 2 >= h(s) - 1);
+    const oneHeight = (a) => a.every((v) => v === a[0]);
+    box.remove();
+    return {
+      ok: oneHeight(pillH) && pillH[0] === 22 && oneHeight(btnH) && btnH[0] === 30 &&
+          !strays.length && round,
+      detail: pills.length + " pill shapes " +
+              (oneHeight(pillH) ? "all " + pillH[0] + "px" : "AT " + pillH.join("/") + "px") +
+              (round ? " and all fully round" : ", NOT all round: " + pills.map(r)) + ", " +
+              btnH.length + " control shapes " +
+              (oneHeight(btnH) ? "all " + btnH[0] + "px" : "AT " + btnH.join("/") + "px") + ", radii " +
+              radii.join("/") + (strays.length ? " OFF SCALE: " + strays : " on the 6/10/14/18 scale"),
+    };
   }
 
   function suite() {
@@ -505,6 +634,10 @@
                   (clash.length ? ", duplicate id: " + clash : ""),
         };
       }))
+
+      // ---- pass 4: the chrome -----------------------------------------------
+
+      .then(() => check("controls", controlsProbe))
 
       .then(() => check("theme", () => {
         const b = document.body.classList;
@@ -881,6 +1014,14 @@
       .then(() => (TMP && Q.doc.path() && Q.doc.path().indexOf(TMP + "/") === 0
         ? check("runBlock", runBlockProbe)
         : check("runBlock", () => ({
+            ok: true,
+            detail: "skipped · needs a scratch document under " + (TMP || "$TMPDIR"),
+          }))))
+
+      // the frontmatter card, drawn over a real block in a real document
+      .then(() => (TMP && Q.doc.path() && Q.doc.path().indexOf(TMP + "/") === 0
+        ? check("frontmatter", frontmatterProbe)
+        : check("frontmatter", () => ({
             ok: true,
             detail: "skipped · needs a scratch document under " + (TMP || "$TMPDIR"),
           }))))

@@ -455,5 +455,13 @@ window.Q = (function () {
     return Math.round(months / 12) + " years";
   };
 
+  // the same distance phrased as a sentence. Q.ago answers "just now" as well as
+  // "3 minutes", so three panels were printing "just now ago" at anything under
+  // ninety seconds.
+  Q.since = function (seconds) {
+    const a = Q.ago(seconds);
+    return a === "just now" ? a : a + " ago";
+  };
+
   return Q;
 })();

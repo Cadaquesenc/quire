@@ -308,8 +308,8 @@
         showBar("rewrite",
           "<b>" + st.phantom.count + "</b> line" + (st.phantom.count === 1 ? "" : "s") +
           " you have not touched change when this file is saved",
-          [{ label: "show", run: showSaveDiff },
-           { label: "dismiss", run: hideBar }]);
+          [{ label: "dismiss", run: hideBar },
+           { label: "show what changes", run: showSaveDiff, primary: true }]);
       }
     });
   }
@@ -416,7 +416,7 @@
       "<b>" + Q.esc(Q.doc.name()) + "</b> changed on disk while you had unsaved edits",
       [{ label: "keep mine", run: keepMine },
        { label: "take theirs", run: takeTheirs },
-       { label: "show diff", run: showConflictDiff }]);
+       { label: "show diff", run: showConflictDiff, primary: true }]);
   }
 
   // ---- the three answers ----------------------------------------------------
@@ -505,7 +505,8 @@
       '<span class="q-guardbar-dot"></span>' +
       '<span class="q-guardbar-msg"></span>' +
       '<span class="q-guardbar-acts"></span>' +
-      '<span class="q-guardbar-x" title="dismiss">&times;</span>');
+      '<span class="q-guardbar-x q-iconbtn" title="dismiss">' +
+        (Q.icon ? Q.icon("close", 12) : "&times;") + "</span>");
     document.body.appendChild(barEl);
     barEl.querySelector(".q-guardbar-x").addEventListener("click", hideBar);
     return barEl;
@@ -518,7 +519,9 @@
     const acts = b.querySelector(".q-guardbar-acts");
     acts.innerHTML = "";
     (actions || []).forEach((a) => {
-      const el = Q.el("button", { class: "q-guardbar-btn" }, Q.esc(a.label));
+      const el = Q.el("button", {
+        class: "q-guardbar-btn" + (a.primary ? " primary" : ""), type: "button",
+      }, Q.esc(a.label));
       el.addEventListener("click", a.run);
       acts.appendChild(el);
     });

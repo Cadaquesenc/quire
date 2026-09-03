@@ -79,11 +79,11 @@
   }
 
   Q.ui.registerPanel("git", "Git", function (body) {
-    body.innerHTML = '<div class="q-panel-loading">reading…</div>';
+    body.innerHTML = Q.ui.loading("reading git…");
     Promise.all([git.status(), git.root()]).then(([s, top]) => {
       if (!s) {
-        body.innerHTML = '<div class="q-panel-empty">' +
-          Q.esc(Q.doc.dir() || "this folder") + "<br>is not a git repository.</div>";
+        body.innerHTML = Q.ui.empty("branch", "not a repository",
+          "<code>" + Q.esc(Q.doc.dir() || "this folder") + "</code> has no git in it.");
         return;
       }
       // porcelain paths are relative to the repo root
@@ -92,10 +92,11 @@
       body.innerHTML =
         '<div class="q-git-head">' +
           '<span class="q-git-b">' + Q.icon("branch", 13) + Q.esc(s.branch) + "</span>" +
-          '<span class="q-git-n">' + (s.dirty ? s.dirty + " changed" : "clean") + "</span>" +
+          '<span class="q-git-n"><span class="q-badge' + (s.dirty ? "" : " accent") + '">' +
+            (s.dirty ? s.dirty + " changed" : Q.icon("check", 11) + "clean") + "</span></span>" +
         "</div>" +
         '<div class="q-git-acts">' +
-          '<span class="q-git-act" data-cmd="gitCommit">commit all…</span>' +
+          '<span class="q-git-act" data-cmd="gitCommit">' + Q.icon("check", 12) + "commit all</span>" +
           '<span class="q-git-act" data-cmd="gitDiff">diff this file</span>' +
           '<span class="q-git-act" data-cmd="gitLog">history</span>' +
         "</div>" +
@@ -107,7 +108,8 @@
               '<span class="q-git-path">' + Q.esc(r.path) + "</span>" +
               '<span class="q-git-what">' + Q.esc(r.label) + "</span>" +
               "</div>").join("") + "</div>"
-          : '<div class="q-panel-empty">working tree clean.</div>');
+          : Q.ui.empty("check", "working tree clean",
+              "nothing to commit on <b>" + Q.esc(s.branch) + "</b>."));
 
       body.querySelectorAll(".q-git-act").forEach((el) =>
         el.addEventListener("click", () => Q.run(el.dataset.cmd)));

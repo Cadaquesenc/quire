@@ -113,7 +113,7 @@
             title: (m.title || "").trim() ||
                    (sub ? "subagent · " + sid.replace(/^agent-/, "").slice(0, 12) : sid.slice(0, 8)),
             cwd: (m.cwd || "").trim(),
-            ago: Q.ago(now - x.mtime),
+            ago: Q.since(now - x.mtime),
           });
         });
       });
@@ -200,7 +200,7 @@
 
   Q.ui.registerPanel("sessions", "Sessions", function (body) {
     body.innerHTML = '<div class="q-sess-head"></div><div class="q-sess-list">' +
-      '<div class="q-pal-empty">reading ~/.claude/projects…</div></div>';
+      Q.ui.loading("reading ~/.claude/projects…") + "</div>";
     const head = body.querySelector(".q-sess-head");
     const listEl = body.querySelector(".q-sess-list");
 
@@ -209,17 +209,18 @@
       head.innerHTML = '<span class="q-sess-count">' + rows.length + " newest</span>" +
         '<span class="q-sess-act" data-act="refresh">refresh</span>';
       head.querySelector('[data-act="refresh"]').addEventListener("click", () => {
-        listEl.innerHTML = '<div class="q-pal-empty">reading…</div>';
+        listEl.innerHTML = Q.ui.loading("reading…");
         list().then(draw);
       });
       if (!rows.length) {
-        listEl.innerHTML = '<div class="q-pal-empty">no transcripts under ~/.claude/projects</div>';
+        listEl.innerHTML = Q.ui.empty("clock", "no transcripts",
+          "nothing under <code>~/.claude/projects</code> yet.");
         return;
       }
       listEl.innerHTML = rows.map((r, i) =>
         '<div class="q-sess-row' + (r.sub ? " sub" : "") + '" data-i="' + i + '">' +
         '<div class="q-sess-t">' + Q.esc(r.title) + "</div>" +
-        '<div class="q-sess-m">' + Q.esc(r.ago) + " ago · " + human(r.size) +
+        '<div class="q-sess-m">' + Q.esc(r.ago) + " · " + human(r.size) +
         (r.cwd ? " · " + Q.esc(r.cwd.replace(/^\/Users\/[^/]+/, "~")) : "") + "</div>" +
         '<div class="q-sess-acts">' +
           '<span class="q-sess-act" data-do="open">open</span>' +
@@ -239,7 +240,7 @@
 
     if (cache) draw(cache);
     list().then(draw, (e) => {
-      listEl.innerHTML = '<div class="q-pal-empty">' + Q.esc(String(e)) + "</div>";
+      listEl.innerHTML = Q.ui.empty("close", "could not read them", Q.esc(String(e)));
     });
   }, "clock", 70);
 
@@ -257,7 +258,7 @@
       Q.pickNote(rows.map((r) => ({
         rec: r,
         stem: r.title,
-        rel: r.ago + " ago · " + human(r.size) + (r.cwd ? " · " + r.cwd.replace(/^\/Users\/[^/]+/, "~") : ""),
+        rel: r.ago + " · " + human(r.size) + (r.cwd ? " · " + r.cwd.replace(/^\/Users\/[^/]+/, "~") : ""),
       })), "Render a session", (it) => openRendered(it.rec));
     }),
   });

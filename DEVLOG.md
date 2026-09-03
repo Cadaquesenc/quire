@@ -721,3 +721,185 @@ to put it exactly two commits behind.
 the scratch document came back byte identical after every run, including the one
 that deliberately dirtied it. the dialog watchdog logged nothing, because no
 dialog ever appeared.
+
+---
+
+## 2026-09-03 · the pass where i had to look
+
+pass four. every button, every pill, rounder corners, the frontmatter drawn as a
+card, and a polish pass over the whole thing. it is the pass i could do least of
+from the code, because the complaint was "the buttons" and you cannot read a
+button off a stylesheet.
+
+### nine radii, arrived at one feature at a time
+
+the old `quire.css` had `border-radius` written out in pixels in ten places:
+2, 3, 4, 7, 8, 9, 10, 12, 14 and 999. none of them wrong on their own. all of
+them decided while writing the feature they belong to, which is how a file ends
+up with a 7px file row next to a 9px badge next to an 8px input.
+
+buttons were worse. a modal button was `padding: 7px 16px`, a git action was
+`3px 9px`, a files chip `2px 9px`, a session action `2px 8px`, a view action
+`3px 9px`. five paddings, no heights, so nothing lined up with anything and the
+only reason it looked survivable is that they never appear in the same row.
+
+so the file is in three parts now. tokens, then controls, then features, and the
+features are only allowed to do layout. four control shapes: a button at 30px, a
+pill at 22px, an icon button at 26px, a badge at 18px. four radii, 6/10/14/18,
+one step rounder than before at every level, plus a pill. **there is no longer a
+single `border-radius` in the file with a number next to it.** 41 uses, all of
+them a token.
+
+### the stage that caught it before i did
+
+a design system is a claim, and a claim in css rots the moment somebody adds a
+section. so `controls` builds one of every control off screen and measures it:
+
+```
+controls  ok · 7 pill shapes all 22px and all fully round, 3 control shapes
+          all 30px, radii 10/6/10 on the 6/10/14/18 scale
+```
+
+the first time it ran it failed, and it was right. i had written the shared pill
+at 22px and then, forty lines further down, given `.q-sess-act` and
+`.q-view-act` a height of 20px because they looked slightly better in a header.
+two of the seven. that is the whole failure mode, reproduced by me, in the same
+file, within an hour of writing the rule down.
+
+it also failed for a stupider reason first. the detail line printed "7 pill
+shapes all 22px" unconditionally, so a failing stage reported its own success in
+the same string. and the roundness check was `radius >= height`, which is wrong:
+webkit hands back the **used** radius here, not the computed one, so
+`border-radius: 999px` on a 22px pill reads back as 11. both fixed, and the
+detail line now prints the array when the array is not uniform.
+
+### the window cannot be round, so the sidebar became a card
+
+the frame is capped by `NSVisualEffectView`, which has fixed materials and no
+radius. that is already in INTERNALS and i did not spend a minute on it.
+
+what i did instead: the sidebar is a card now. the panel keeps its position and
+its width, gets 6px of padding, and the column inside it is a rounded surface
+with the icon rail sitting outside it on the window edge. the glass shows down
+both sides of the card, which is the first time the transparency has been doing
+anything other than tinting.
+
+### the frontmatter card, and the three rules that made it safe
+
+a sticky carries yaml: session, cwd, window, created, and how the session was
+resolved. eight lines of it above the two lines you wrote.
+
+the card is an overlay, not markup. nothing goes inside `#write`, because this
+editor serialises its node tree on save and anything you put in the document
+eventually gets handed to the markdown writer. so: a fixed div over the block's
+own rectangle, the same trick the run buttons already use. the raw `<pre>` stays
+exactly where it was, goes transparent, and lends its height to the card. it is
+still the only thing that gets saved. click into it and the card steps aside and
+the yaml comes back, because a card you cannot edit is a wall.
+
+the height is a handshake: the card is measured after it renders and the number
+goes back to the block as `--q-fm-h`. one direction only, so it cannot oscillate.
+
+```
+frontmatter  ok · 3 keys parsed off 4 lines, a quoted colon survived, 3 rows
+             drawn (session, cwd, window), raw yaml transparent, block 82px
+             against a 82px card
+```
+
+the base stylesheet paints `pre.md-meta-block` with `background:#ccc`. a light
+grey slab across the top of a dark document, in the app since 2021, and the only
+reason nobody noticed is that almost nothing here has frontmatter.
+
+### seven things that were only findable by looking
+
+i took 30-odd photographs of the window this pass. every one of these came out
+of one of them and not one of them came out of reading the code.
+
+- **an empty `<kbd>` is a box.** the palette renders `<kbd></kbd>` for a command
+  with no shortcut. at the old padding that was a sliver. at a real min-width it
+  is an empty grey rectangle on two thirds of the rows. `kbd:empty` now hides.
+- **`--q-radius` does not exist.** the toast asked for `var(--q-radius)` and has
+  had square corners since it was written. there is no such token and there never
+  was; every other float uses `--q-r3`.
+- **`--tn-bg` does not exist either.** a tokyonight pass left `background:
+  var(--tn-bg)` on the float titles. an undefined var in a shorthand is invalid
+  at computed-value time, so the background fell back to transparent and the
+  box's own border ran straight through the word "commands".
+- **the rail's active indicator was off the edge of the window.** a 2px accent
+  bar at `right: -7px` on a 28px button in a 38px rail, and the rail is against
+  the window edge. it has never once been visible. the selected section is a
+  filled rounded square now, which is a thing i can see.
+- **the read-only pane was see-through.** `body.q-glass #q-view` was
+  `background: transparent !important`, written to match the document, except the
+  pane covers the document rather than replacing it. so opening `build.sh` gave
+  37 numbered lines of shell with an `<h1>` reading "Quire" straight through the
+  middle of them. two passes old. proven at the dom level, never once looked at.
+- **a sticky note was 80px wide.** the sidebar preference is shared with the main
+  window, so a note opened while the sidebar was up inherited
+  `content { right: 300px }` in a 380px window. the whole note wrapped one word
+  per line and it looked like the frontmatter card was broken. two fixes:
+  `restoreSidebar` refuses on a sticky, and the sticky rule pins `right: 0`.
+- **the terminal prompt pointed the wrong way.** the path ellipsises from the
+  left, which needs `direction: rtl`, and a neutral character like `›` inside an
+  rtl run gets mirrored and moved to the other end. it read `‹ quire-demo/~`.
+  the caret is its own element now.
+
+plus three panels printing **"just now ago"**, because `Q.ago` answers "just now"
+as well as "3 minutes" and three call sites appended " ago" to both. there is a
+`Q.since` now and it is the only thing allowed to phrase it as a sentence.
+
+### how you photograph an app you are not allowed to touch
+
+macos stops painting an occluded web view, so a background `screencapture` gives
+you the last frame it painted. pass one got 70 captures over 28 seconds and 58 of
+them were byte identical.
+
+what works: keep the window unoccluded, capture by window id with
+`screencapture -x -o -l`, and drive the app from inside. a temporary `97-shot.js`
+polled a scene name out of a file every 500ms and put the app into it: open the
+palette with this query, show that panel, run this command in the terminal. it is
+deleted now and it was never part of the app.
+
+it also wrote 18 sticky notes. `last` is per window, so the note window's own
+copy of the driver read the same scene file, decided it had not seen it yet, and
+made another note. every six seconds until i changed the scene. deleted.
+
+one honest note about the screenshot: the window is 65% opaque by default and the
+desktop behind it right now is bright, so a straight capture came out mid grey.
+the shot was taken at 90%, which is a live setting on `⌘⌥-` and `⌘⌥=`, and it is
+what the app looks like over a dark desktop at the default.
+
+### what i decided against
+
+no rounding the host's left sidebar. its width is set inline by the host when you
+drag it and overriding that with `!important` breaks the drag. so the left column
+is square and ours is a card, and the rail is the seam between them.
+
+no converting the pills to real `<button>` elements. it is the correct markup and
+it costs you the caret: clicking a `<button>` moves focus out of the editor, and
+these all sit in a panel next to a document you are typing into. they are divs
+with hover, active and disabled states and no focus ring, which is a real
+tradeoff and not an oversight.
+
+no fade mask on the palette list. it looks good and it hides the fact that the
+list scrolls.
+
+### verified, and what is not
+
+44 selftest stages, 2 of them new, all passing, against a scratch document under
+`$TMPDIR`. 128 commands, 38 keys, no duplicate key and no duplicate id. `seal
+OK`. the scratch document came back byte identical and the dialog watchdog logged
+nothing.
+
+photographed, at 2800x1730, by window id, with no focus taken: the palette over a
+document, the files panel, the git panel's empty state, the sessions list, the
+docs panel, the tags cloud, the terminal with real output in it, the read-only
+pane over `build.sh`, which-key with all 38 bindings in five columns, the about
+dialog with its three buttons, and a sticky note with its frontmatter card.
+
+not verified: i cannot press anything. every hover, active and focus state in
+this pass is drawn in css and has never been photographed under a pointer,
+because a pointer means the keyboard and the keyboard belongs to whoever is at
+the machine. the same goes for the drag handle on the sidebar and the caret
+landing in the frontmatter block, which is the one gesture the card is built
+around.

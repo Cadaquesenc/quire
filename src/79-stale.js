@@ -158,7 +158,7 @@
 
   Q.ui.registerPanel("docs", "Docs", function (body) {
     body.innerHTML = '<div class="q-stale-head"></div><div class="q-stale-body">' +
-      '<div class="q-pal-empty">reading git…</div></div>';
+      Q.ui.loading("reading git…") + "</div>";
     const head = body.querySelector(".q-stale-head");
     const out = body.querySelector(".q-stale-body");
 
@@ -169,7 +169,7 @@
         ? r.behind + (r.behind === 1 ? " commit" : " commits") + " of code since · doc is " +
           Q.ago(r.gap) + " older"
         : (r.isNew ? "untracked" : (r.dirty ? "uncommitted · " : "") +
-           "last committed " + Q.ago(cache.now - r.docTs) + " ago");
+           "last committed " + Q.since(cache.now - r.docTs));
       return '<div class="q-stale-row" data-p="' + Q.esc(r.path) + '">' +
         '<div class="q-stale-n">' + Q.esc(name) +
         (dir ? '<span class="q-stale-d">' + Q.esc(dir) + "</span>" : "") + "</div>" +
@@ -183,23 +183,26 @@
       cache = rep;
       if (!rep.ok) {
         head.innerHTML = "";
-        out.innerHTML = '<div class="q-pal-empty">' + Q.esc(rep.why) + "</div>";
+        out.innerHTML = Q.ui.empty("doc", rep.why,
+          "this panel reads one <code>git log</code> and asks which docs the code " +
+          "has moved past.");
         return;
       }
       head.innerHTML = '<span class="q-sess-count">' + rep.docs + " docs · " +
         rep.commits + " commits read</span>" +
         '<span class="q-sess-act" data-act="refresh">refresh</span>';
       head.querySelector('[data-act="refresh"]').addEventListener("click", () => {
-        out.innerHTML = '<div class="q-pal-empty">reading git…</div>';
+        out.innerHTML = Q.ui.loading("reading git…");
         report().then(draw);
       });
       out.innerHTML =
         '<div class="q-side-label">behind the code</div>' +
         (rep.stale.length ? rep.stale.map((r) => row(r, "stale")).join("")
-                          : '<div class="q-pal-empty">nothing is behind</div>') +
+                          : Q.ui.empty("check", "nothing is behind",
+                              "every doc here was committed after the code next to it.")) +
         '<div class="q-side-label">touched lately</div>' +
         (rep.recent.length ? rep.recent.map((r) => row(r, "recent")).join("")
-                           : '<div class="q-pal-empty">nothing this week</div>');
+                           : Q.ui.empty("clock", "nothing this week", ""));
       out.querySelectorAll(".q-stale-row").forEach((el) =>
         el.addEventListener("click", () => Q.doc.open(rep.root + "/" + el.dataset.p)));
     }

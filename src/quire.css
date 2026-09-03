@@ -1,987 +1,112 @@
 /* quire / chrome
  *
- * everything here is ours: the palette, the modal, the right panel, the status
- * bar. it borrows the host's theme variables so it follows whatever theme is
- * loaded instead of fighting it.
+ * everything here is ours: the palette, the modal, the sidebar, the status bar,
+ * the run pills, the frontmatter card. it borrows the host's theme variables so
+ * it follows whatever theme is loaded instead of fighting it.
  *
  * the one piece of host layout this touches is `content`, which is absolutely
  * positioned with a 25px gutter already reserved at the bottom. the status bar
  * drops into that gutter, so nothing reflows.
+ *
+ * read this file in three parts. tokens first: colour, elevation, radius,
+ * spacing, size, type, motion. then the controls, which are the only things in
+ * here allowed to be interactive and are all built out of those tokens. then the
+ * features, which are only ever layout.
+ *
+ * four things were pulled from, and it matters which part came from where.
+ *
+ * ghostty: the ground and the colours. the palette is the exact ansi values out
+ * of the terminal config on this machine, so the editor and the terminal next to
+ * it are the same room.
+ *
+ * discord: the text hierarchy. three levels, normal/muted/faint, and almost
+ * everything that isn't the words you wrote sits on the bottom two.
+ *
+ * apple: restraint and motion. one accent for anything selected, focused or
+ * active, and nothing else. prose stays a single colour, no rainbow headings,
+ * because an editor is for reading.
+ *
+ * lazyvim: the structures only. which-key, telescope's two-pane picker, floats
+ * with their name in the top border, a lualine mode block.
  */
+
+/* ---- tokens --------------------------------------------------------------- */
 
 :root {
   --q-fg: var(--text-color, #24292e);
   --q-bg: var(--bg-color, #fff);
   --q-panel-bg: var(--side-bar-bg-color, #fafafa);
   --q-line: var(--window-border-color, rgba(128, 128, 128, 0.22));
-  --q-dim: color-mix(in srgb, var(--q-fg) 55%, transparent);
 
-  /* one accent for everything selected, focused or active, and nothing else.
-   * that restraint is most of why obsidian reads as calm at the density it
-   * runs. */
-  /* obsidian's interactive accent */
+  /* three levels of text, and everything that isn't the words you wrote sits on
+   * the bottom two. that is most of why the chrome disappears when reading. */
+  --q-muted: color-mix(in srgb, var(--q-fg) 62%, transparent);
+  --q-faint: color-mix(in srgb, var(--q-fg) 38%, transparent);
+  --q-dim: var(--q-muted);
+
+  /* one accent for everything selected, focused or active, and nothing else. */
   --q-accent: #7f6df2;
   --q-accent-soft: color-mix(in srgb, var(--q-accent) 22%, transparent);
   --q-accent-ghost: color-mix(in srgb, var(--q-accent) 12%, transparent);
+  --q-accent-line: color-mix(in srgb, var(--q-accent) 45%, transparent);
+  /* the ink that goes on top of a filled accent. dark, not white: the accent is
+   * a muted mid-tone and white on it is the one low-contrast pair in the set. */
+  --q-on-accent: #14161a;
 
-  /* surfaces, not shadows. depth comes from three fills that step away from the
+  /* surfaces, not shadows. depth comes from four fills that step away from the
    * window, the way both discord's sidebar/chat/popover and apple's vibrancy
-   * layers do it. */
+   * layers do it. e0 is the barely-there one that a resting control sits on. */
+  --q-e0: color-mix(in srgb, var(--q-fg) 3%, transparent);
   --q-e1: color-mix(in srgb, var(--q-fg) 5%, transparent);
   --q-e2: color-mix(in srgb, var(--q-fg) 9%, transparent);
   --q-e3: color-mix(in srgb, var(--q-fg) 14%, transparent);
+  --q-float-bg: var(--q-bg);
 
-  /* a 4px spacing grid and three radii. anything that needs a fourth is wrong. */
+  /* a 4px spacing grid. anything that needs a step between two of these is
+   * usually a padding that should have been a gap. */
   --q-s1: 4px; --q-s2: 8px; --q-s3: 12px; --q-s4: 16px; --q-s5: 24px;
-  /* obsidian's radii: tighter than discord's, 4 on rows, 8 on containers */
-  --q-r1: 4px; --q-r2: 8px; --q-r3: 12px;
 
-  /* apple's spring. overshoots slightly and settles, which is what makes a
-   * panel feel pushed rather than switched on. */
+  /* four radii and a pill. rows are r1, inputs and cards r2, floats r3, the big
+   * surfaces r4. rounder than the first pass by 2px at every step, which is the
+   * difference between "a box with the corners knocked off" and something drawn
+   * round on purpose. */
+  --q-r1: 6px; --q-r2: 10px; --q-r3: 14px; --q-r4: 18px;
+  --q-rp: 999px;
+
+  /* control heights. every interactive thing in the app is one of these three,
+   * which is the whole reason the chrome lines up. */
+  --q-h-pill: 22px;
+  --q-h-ctl: 30px;
+  --q-h-row: 28px;
+  --q-row: 28px;
+
+  /* type. six sizes, and the label size is deliberately tiny: at 10px uppercase
+   * a word stops being read as content and starts being read as structure. */
+  --q-t-label: 10px;
+  --q-t-meta: 10.5px;
+  --q-t-sm: 11.5px;
+  --q-t-ui: 12.5px;
+  --q-t-md: 13px;
+  --q-t-lg: 15px;
+
+  /* apple's spring. overshoots slightly and settles, which is what makes a panel
+   * feel pushed rather than switched on. */
   --q-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --q-fast: 0.12s;
   --q-med: 0.2s;
 
-  --q-shadow: 0 20px 60px rgba(0, 0, 0, 0.34), 0 1px 3px rgba(0, 0, 0, 0.2);
+  --q-shadow: 0 24px 64px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.22);
+  --q-shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.22);
+  /* the hairline that sits inside a filled control. one pixel of light on the
+   * top edge is what stops a flat fill reading as a coloured rectangle. */
+  --q-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
   --q-mono: "Operator Mono", "MonoLisa", "Victor Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --q-ui: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
 }
 
-/* thin overlay scrollbars everywhere ours renders, apple's rather than the web's */
-#q-panel ::-webkit-scrollbar,
-#q-palette ::-webkit-scrollbar,
-#q-modal ::-webkit-scrollbar { width: 8px; height: 8px; }
-#q-panel ::-webkit-scrollbar-thumb,
-#q-palette ::-webkit-scrollbar-thumb,
-#q-modal ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--q-fg) 18%, transparent);
-  border-radius: 4px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-#q-panel ::-webkit-scrollbar-thumb:hover,
-#q-palette ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--q-fg) 30%, transparent); }
-#q-panel ::-webkit-scrollbar-track { background: transparent; }
-
-/* one focus ring, apple's proportions, on everything focusable */
-#q-panel :focus-visible,
-#q-palette :focus-visible,
-#q-modal :focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--q-accent) 40%, transparent);
-  border-radius: var(--q-r1);
-}
-
-#q-palette, #q-modal, #q-panel, #q-status, #q-toast {
-  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-  font-size: 13px;
-  color: var(--q-fg);
-  -webkit-font-smoothing: antialiased;
-}
-
-kbd {
-  font-family: var(--q-mono);
-  font-size: 11px;
-  padding: 1px 5px;
-  border: 1px solid var(--q-line);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  opacity: 0.75;
-  white-space: nowrap;
-}
-
-.q-bad { color: #e05252; }
-
-/* everything visible-vs-hidden here is `.q-open`, never `.show`. the host
- * bundles bootstrap 3, whose `.show { display: block !important }` beats
- * `#q-palette.show { display: flex }` on the !important flag alone, which
- * silently turned the palette and every dialog into a block, so the centring
- * stopped applying and both boxes sat against the left edge of the window. */
-
-/* ---- status bar ---------------------------------------------------------- */
-
-#q-status {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  height: 25px;
-  display: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 10px;
-  font-size: 11.5px;
-  color: var(--q-dim);
-  background: var(--q-bg);
-  border-top: 1px solid var(--q-line);
-  z-index: 12;
-  user-select: none;
-  -webkit-user-select: none;
-}
-body.q-status-on #q-status { display: flex; }
-body.q-status-on #typora-sidebar { bottom: 28px; }
-/* the host reserves 25px at the bottom; the bar is 28 and the text has to move
- * out from under it or the last line reads through the words count */
-body.q-status-on content { bottom: 28px; }
-#q-status .q-status-left, #q-status .q-status-right { display: flex; gap: 14px; align-items: center; }
-#q-status .q-cell { white-space: nowrap; display: flex; align-items: center; gap: 5px; }
-#q-status .q-cell.click { cursor: default; }
-#q-status .q-cell.click:hover { color: var(--q-fg); }
-#q-status .q-sep { opacity: 0.4; }
-#q-status i { font-style: normal; }
-.q-git-branch::before { content: "⑂ "; opacity: 0.6; }
-.q-git-dirty {
-  margin-left: 5px; padding: 0 5px; border-radius: 8px;
-  background: color-mix(in srgb, var(--q-fg) 12%, transparent);
-  font-variant-numeric: tabular-nums;
-}
-.q-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--q-dim); }
-.q-dot.on { background: #3fb950; }
-
-/* ---- toast --------------------------------------------------------------- */
-
-#q-toast {
-  position: fixed;
-  bottom: 42px; left: 50%;
-  transform: translate(-50%, 12px);
-  max-width: 60vw;
-  padding: 10px 16px;
-  background: var(--q-bg);
-  border: 1px solid var(--q-line);
-  border-radius: var(--q-radius);
-  box-shadow: var(--q-shadow);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.16s, transform 0.16s;
-  z-index: 60;
-  line-height: 1.5;
-}
-#q-toast.q-open { opacity: 1; transform: translate(-50%, 0); }
-#q-toast pre { margin: 4px 0 0; font-family: var(--q-mono); font-size: 11px; white-space: pre-wrap; }
-
-/* ---- command palette ----------------------------------------------------- */
-
-#q-palette {
-  position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.28);
-  display: none;
-  justify-content: center;
-  align-items: flex-start;
-  z-index: 70;
-  backdrop-filter: blur(2px);
-}
-#q-palette.q-open { display: flex; }
-.q-pal-box {
-  margin-top: 12vh;
-  width: 620px;
-  max-width: calc(100vw - 48px);
-  background: var(--q-bg);
-  border: 1px solid var(--q-line);
-  border-radius: 14px;
-  box-shadow: var(--q-shadow);
-  overflow: hidden;
-}
-.q-pal-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 15px 18px;
-  border: 0;
-  border-bottom: 1px solid var(--q-line);
-  background: transparent;
-  color: var(--q-fg);
-  font-size: 16px;
-  outline: none;
-}
-.q-pal-list { max-height: 46vh; overflow-y: auto; padding: 6px; }
-.q-pal-item {
-  position: relative;
-  display: flex; align-items: center; gap: var(--q-s3);
-  padding: 6px var(--q-s3);
-  border-radius: var(--q-r1);
-  cursor: default;
-}
-.q-pal-item:hover { background: var(--q-e1); }
-/* selected rows get the accent and a bar on the leading edge, which is how
- * discord marks the active channel without shouting */
-.q-pal-item.sel { background: var(--q-accent-soft); }
-.q-pal-item.sel::before {
-  content: ""; position: absolute; left: 3px; top: 50%;
-  width: 3px; height: 15px; margin-top: -7.5px;
-  border-radius: 2px; background: var(--q-accent);
-}
-/* discord's section label: tiny, uppercase, bold, heavily muted. it stops
- * being read as content and starts being read as structure. */
-.q-pal-cat, .q-fontsec, .q-fgroup-name {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  opacity: 0.4;
-}
-.q-pal-cat { min-width: 68px; }
-.q-pal-title { flex: 1; }
-.q-pal-item kbd { opacity: 0.6; }
-.q-pal-empty { padding: 20px; text-align: center; opacity: 0.5; }
-.q-pal-foot {
-  display: flex; gap: 16px;
-  padding: 8px 16px;
-  border-top: 1px solid var(--q-line);
-  font-size: 11px;
-  opacity: 0.55;
-}
-
-/* ---- modal --------------------------------------------------------------- */
-
-#q-modal {
-  position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.28);
-  display: none;
-  justify-content: center;
-  align-items: flex-start;
-  z-index: 80;
-}
-#q-modal.q-open { display: flex; }
-.q-sheet {
-  margin-top: 14vh;
-  width: 520px;
-  max-width: calc(100vw - 48px);
-  background: var(--q-bg);
-  border: 1px solid var(--q-line);
-  border-radius: 14px;
-  box-shadow: var(--q-shadow);
-  overflow: hidden;
-}
-#q-modal[data-wide="1"] .q-sheet { width: 820px; max-width: calc(100vw - 48px); }
-.q-sheet-title { padding: 16px 20px 0; font-size: 15px; font-weight: 600; }
-.q-sheet-body { padding: 14px 20px; max-height: 58vh; overflow-y: auto; line-height: 1.6; }
-.q-sheet-body p { margin: 0 0 10px; }
-.q-sheet-foot {
-  display: flex; justify-content: flex-end; gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--q-line);
-}
-/* secondary buttons carry no border at all. discord's dialogs use text-only
- * for anything that isn't the action you came for */
-.q-btn {
-  padding: 7px 16px;
-  border: 0;
-  border-radius: var(--q-r1);
-  background: transparent;
-  color: var(--q-fg);
-  font: inherit; font-weight: 500;
-  cursor: default;
-  opacity: 0.75;
-}
-.q-btn:hover { background: var(--q-e1); opacity: 1; }
-.q-btn.primary {
-  background: var(--q-accent); color: #fff; opacity: 1;
-}
-.q-btn.primary:hover { background: color-mix(in srgb, var(--q-accent) 84%, #000); }
-.q-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 9px 12px;
-  border: 1px solid var(--q-line);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--q-fg);
-  font: inherit;
-  outline: none;
-}
-.q-input:focus { border-color: var(--q-accent); }
-.q-pre {
-  font-family: var(--q-mono);
-  font-size: 11.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-  padding: 12px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--q-fg) 6%, transparent);
-  max-height: 46vh;
-  overflow: auto;
-}
-.q-diff .add { color: #3fb950; }
-.q-diff .del { color: #e05252; }
-.q-diff .hunk { opacity: 0.55; }
-.q-note { font-size: 12px; opacity: 0.6; margin: 0 0 12px; line-height: 1.55; }
-
-table.q-stats { width: 100%; border-collapse: collapse; }
-table.q-stats td { padding: 5px 0; border-bottom: 1px solid var(--q-line); }
-table.q-stats td:last-child { text-align: right; font-variant-numeric: tabular-nums; opacity: 0.75; }
-
-.q-keymap table { width: 100%; border-collapse: collapse; }
-.q-keymap tr { cursor: default; }
-.q-keymap tr:hover { background: color-mix(in srgb, var(--q-fg) 7%, transparent); }
-.q-keymap td { padding: 5px 8px; border-bottom: 1px solid var(--q-line); }
-.q-keymap td.cat { width: 88px; font-size: 11px; opacity: 0.45; }
-.q-keymap td.k { text-align: right; width: 96px; }
-
-.q-capture { text-align: center; padding: 22px 0; }
-.q-capture-key { font-size: 26px; font-family: var(--q-mono); min-height: 34px; }
-.q-capture-hint { margin-top: 10px; font-size: 11.5px; opacity: 0.5; }
-
-/* ---- pickers and lists --------------------------------------------------- */
-
-.q-picklist, .q-mentions { max-height: 44vh; overflow-y: auto; margin-top: 10px; }
-.q-pick-item, .q-mention {
-  display: flex; gap: 10px; align-items: baseline;
-  padding: 6px 9px; border-radius: 7px; cursor: default;
-}
-.q-pick-item:hover, .q-mention:hover { background: var(--q-e1); }
-.q-pick-item.sel { background: var(--q-accent-soft); }
-.q-pick-name { font-weight: 500; }
-.q-pick-path, .q-mention-file { font-size: 11px; opacity: 0.5; font-family: var(--q-mono); }
-.q-mention { flex-direction: column; gap: 2px; }
-.q-mention-text { font-size: 12px; opacity: 0.8; }
-
-.q-modellist { display: flex; flex-direction: column; gap: 4px; }
-.q-model { padding: 8px 12px; border-radius: 8px; font-family: var(--q-mono); font-size: 12px; cursor: default; }
-.q-model:hover { background: color-mix(in srgb, var(--q-fg) 8%, transparent); }
-.q-model.sel { background: var(--q-accent-soft); }
-
-/* ---- assistant ----------------------------------------------------------- */
-
-.q-ai-run { min-height: 90px; }
-.q-ai-status { font-size: 11px; opacity: 0.5; margin-bottom: 8px; }
-.q-ai-out { font: inherit; white-space: pre-wrap; margin: 0; line-height: 1.65; }
-.q-spinner {
-  width: 15px; height: 15px; margin-bottom: 10px;
-  border: 2px solid var(--q-line);
-  border-top-color: var(--q-accent);
-  border-radius: 50%;
-  animation: q-spin 0.7s linear infinite;
-}
-@keyframes q-spin { to { transform: rotate(360deg); } }
-
-/* ---- the sidebar --------------------------------------------------------- *
- * one column, every section in it, an icon rail down the window edge. the rail
- * is on the outer edge rather than the inner one for the same reason discord's
- * is: it belongs to the window, not to the content next to it, and putting it
- * inboard would leave a strip of icons floating between two readable columns.
- */
-
-#q-panel {
-  position: fixed;
-  top: 28px; right: 0; bottom: 0;
-  width: var(--q-side-w, 300px);
-  display: none;
-  flex-direction: row;
-  background: var(--q-panel-bg);
-  border-left: 1px solid var(--q-line);
-  z-index: 11;
-}
-#q-panel.q-open { display: flex; }
-body.q-status-on #q-panel { bottom: 25px; }
-body.q-panel-open content { right: var(--q-side-w, 300px); }
-/* no transition on this deliberately: reflowing the editor's width in step with
- * the panel's slide is two layout passes a frame */
-content { transition: none !important; }
-
-/* the drag edge. wider than it looks so it can actually be hit. */
-.q-side-grip {
-  flex: none; width: 5px; margin-right: -3px; z-index: 2;
-  cursor: col-resize; background: transparent;
-}
-.q-side-grip:hover { background: var(--q-accent-soft); }
-body.q-side-resizing { cursor: col-resize; user-select: none; }
-body.q-side-resizing * { pointer-events: none; }
-
-.q-side-main {
-  flex: 1; min-width: 0;
-  display: flex; flex-direction: column;
-}
-.q-side-head {
-  flex: none; display: flex; align-items: center; gap: var(--q-s2);
-  padding: var(--q-s3) var(--q-s3) var(--q-s2) var(--q-s3);
-}
-/* discord's section label: small, uppercase, heavy, faint. it stops reading as
- * content and starts reading as structure. */
-.q-side-title {
-  flex: 1; min-width: 0;
-  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.07em; opacity: 0.42;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.q-side-close {
-  display: flex; align-items: center; padding: 3px;
-  border-radius: var(--q-r1); opacity: 0.35; cursor: default;
-}
-.q-side-close:hover { opacity: 1; background: var(--q-e1); }
-.q-side-stack { flex: 1; min-height: 0; display: flex; }
-
-.q-rail {
-  flex: none; width: 38px;
-  display: flex; flex-direction: column; align-items: center;
-  gap: 2px; padding: var(--q-s2) 0;
-  border-left: 1px solid var(--q-line);
-}
-.q-rail-btn {
-  position: relative;
-  width: 28px; height: 28px; border-radius: var(--q-r2);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--q-faint); cursor: default;
-}
-.q-rail-btn:hover { color: var(--q-muted); background: var(--q-e1); }
-.q-rail-btn.sel { color: var(--q-fg); background: var(--q-e2); }
-.q-rail-btn .q-i { opacity: 1; }
-/* the active pill, on the window edge. one accent, and this is one of the
- * places it earns it. */
-.q-rail-btn.sel::after {
-  content: ""; position: absolute; right: -7px;
-  width: 2px; height: 16px; border-radius: 2px;
-  background: var(--q-accent);
-}
-
-/* every section keeps its own body and is hidden, not destroyed */
-.q-panel-body { flex: 1; min-width: 0; overflow-y: auto; padding: 10px; }
-.q-panel-body[hidden] { display: none !important; }
-.q-panel-empty, .q-panel-loading {
-  padding: 24px 14px; text-align: center; font-size: 12px; opacity: 0.5; line-height: 1.7;
-}
-
-.q-back { padding: 9px 10px; border-radius: 8px; cursor: default; }
-.q-back:hover { background: color-mix(in srgb, var(--q-fg) 8%, transparent); }
-.q-back-name { font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
-.q-back-count {
-  font-size: 10px; padding: 0 6px; border-radius: 8px; opacity: 0.7;
-  background: color-mix(in srgb, var(--q-fg) 12%, transparent);
-}
-.q-back-path { font-size: 10.5px; opacity: 0.45; font-family: var(--q-mono); margin: 2px 0 5px; }
-.q-back-hit {
-  font-size: 11.5px; opacity: 0.72; line-height: 1.5;
-  padding-left: 8px; border-left: 2px solid var(--q-line);
-  margin-top: 3px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-.q-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.q-tag {
-  padding: 3px 9px; border-radius: 12px; font-size: 11.5px; cursor: default;
-  background: color-mix(in srgb, var(--q-fg) 9%, transparent);
-}
-.q-tag:hover { background: var(--q-accent-soft); }
-.q-tag i { font-style: normal; margin-left: 6px; opacity: 0.5; font-size: 10px; }
-
-/* ---- prose typography ---------------------------------------------------- *
- * off by default. widens the measure, loosens the leading and hangs the
- * headings, which is the layout most themes never get round to.
- */
-
-body.q-prose #write {
-  max-width: 46em;
-  line-height: 1.78;
-  font-size: 16.5px;
-}
-body.q-prose #write > h1,
-body.q-prose #write > h2,
-body.q-prose #write > h3 { letter-spacing: -0.012em; line-height: 1.25; }
-body.q-prose #write > h1 { margin-top: 2.2em; }
-body.q-prose #write > h2 { margin-top: 2em; }
-body.q-prose #write > p { margin: 0 0 1.15em; }
-body.q-prose #write > blockquote { border-left-width: 2px; opacity: 0.86; font-style: italic; }
-body.q-prose #write > pre, body.q-prose #write .md-fences { font-size: 13px; line-height: 1.55; }
-
-/* ---- zen ----------------------------------------------------------------- */
-
-body.q-zen #typora-sidebar,
-body.q-zen #q-status,
-body.q-zen header { display: none !important; }
-body.q-zen content { top: 0; bottom: 0; right: 0; }
-body.q-zen #write { max-width: 40em; }
-
-/* ---- glass --------------------------------------------------------------- *
- * the window is already non-opaque and blurred by the time this runs. that is
- * the native half's job. what is left is to stop every layer of the host's own
- * chrome painting over it, and to put the tint back exactly once, on the body.
- *
- * !important is unavoidable here: themes set these backgrounds on the same
- * elements, and the user's theme is loaded from a <link> we do not control.
- */
-
-body.q-glass {
-  background-color: rgba(var(--q-glass-tint, 30, 30, 30), var(--q-glass-alpha, 0.65)) !important;
-}
-html:has(body.q-glass) { background: transparent !important; }
-
-body.q-glass content,
-body.q-glass #write,
-body.q-glass header,
-body.q-glass #top-titlebar,
-body.q-glass footer,
-body.q-glass .ty-footer,
-body.q-glass #typora-source,
-body.q-glass .CodeMirror,
-body.q-glass .CodeMirror-gutters {
-  background: transparent !important;
-  background-color: transparent !important;
-}
-
-/* the sidebar and our panel sit a shade deeper so the split still reads */
-body.q-glass #typora-sidebar,
-body.q-glass #q-panel {
-  background-color: rgba(0, 0, 0, 0.16) !important;
-}
-body.q-glass #q-status {
-  background: transparent;
-  border-top-color: rgba(255, 255, 255, 0.08);
-}
-/* the text pane covers the document area, so it inherits the document's
- * treatment: transparent, and the window shows through it the same way */
-body.q-glass #q-view { background: transparent !important; }
-body.q-glass .q-view-note { background: rgba(255, 255, 255, 0.05); }
-
-/* overlays stay solid: a translucent dialog over a translucent window is mud */
-/* opaque, deliberately. these animate, and a moving backdrop-filter on top of
- * an already-blurred window makes the compositor re-render the entire stack
- * every frame, which is exactly what a dropped palette animation looks like. */
-body.q-glass .q-pal-box,
-body.q-glass .q-sheet,
-body.q-glass .q-wk-box {
-  background-color: rgba(26, 26, 26, 0.97);
-}
-
-/* code blocks need a floor or they vanish into the desktop, but the floor goes
- * on the wrapper only. codemirror paints four nested elements of its own, and
- * every one of them stacking its own tint is what turns a code block into an
- * opaque slab. */
-body.q-glass #write .md-fences,
-body.q-glass #write > pre,
-body.q-glass #write code,
-body.q-glass #write table {
-  background-color: rgba(255, 255, 255, 0.05) !important;
-}
-body.q-glass .CodeMirror,
-body.q-glass .CodeMirror-scroll,
-body.q-glass .CodeMirror-sizer,
-body.q-glass .CodeMirror-lines,
-body.q-glass .CodeMirror-gutters,
-body.q-glass .CodeMirror-gutter,
-body.q-glass .CodeMirror-activeline-background,
-body.q-glass .md-fences .CodeMirror-code,
-body.q-glass #write .md-fences-adv-panel,
-body.q-glass #write .md-diagram-panel {
-  background: transparent !important;
-  background-color: transparent !important;
-}
-
-/* ---- typeface ------------------------------------------------------------ *
- * Inter ships in the bundle as the stand-in for gg sans, which discord streams
- * from its own cdn and does not license out. if gg sans is ever installed the
- * stack picks it up first and this is never used.
- */
-
-@font-face {
-  font-family: "Victor Mono";
-  src: url("./VictorMono.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-/* the cursive italic is the whole point of this face. markdown emphasis and
- * code comments get it, which is what operator mono is bought for */
-@font-face {
-  font-family: "Victor Mono";
-  src: url("./VictorMono-Italic.woff2") format("woff2");
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Inter";
-  src: url("./InterVariable.woff2") format("woff2");
-  font-weight: 100 900;
-  font-display: swap;
-}
-
-body.q-font-on,
-body.q-font-on #q-status,
-body.q-font-on #q-panel,
-body.q-font-on #q-palette,
-body.q-font-on #q-modal,
-body.q-font-on #q-toast,
-body.q-font-on #typora-sidebar,
-body.q-font-on header,
-body.q-font-on #write {
-  font-family: var(--q-font, -apple-system, sans-serif);
-}
-/* code keeps a mono face whatever the ui is set to, unless the ui face is
- * already one, in which case switching would break the very look that was
- * chosen */
-body.q-font-on:not(.q-font-mono) #write code,
-body.q-font-on:not(.q-font-mono) #write pre,
-body.q-font-on:not(.q-font-mono) .CodeMirror,
-body.q-font-on:not(.q-font-mono) .q-pre,
-body.q-font-on:not(.q-font-mono) .q-term-out,
-body.q-font-on:not(.q-font-mono) .q-term-input { font-family: var(--q-mono); }
-body.q-font-mono { letter-spacing: -0.012em; }
-body.q-font-mono #write em,
-body.q-font-mono #write .md-comment { font-style: italic; }
-
-.q-fontsec {
-  font-size: 10.5px; text-transform: lowercase; letter-spacing: 0.06em;
-  opacity: 0.42; margin: 14px 0 6px;
-}
-.q-fontsec:first-child { margin-top: 0; }
-.q-fontpick .q-modellist { display: flex; flex-wrap: wrap; gap: 5px; }
-.q-fontpick .q-model { font-size: 14px; padding: 7px 13px; }
-.q-fontnote { margin-top: 8px; font-size: 12px; min-height: 18px; opacity: 0.75; }
-.q-fontnote.ok { color: #3fb950; }
-.q-fontnote.bad { color: #e0724f; }
-
-/* ---- icons --------------------------------------------------------------- */
-
-.q-i { flex: none; vertical-align: -2px; opacity: 0.75; }
-.q-cell .q-i { opacity: 0.6; }
-
-/* ---- status bar, second pass --------------------------------------------- *
- * the first version was a bar: a strip with a rule above it, visibly bolted to
- * the bottom of the window. this one has no edge of its own. the cells only
- * take a shape when you point at them, so at rest it reads as part of the page.
- */
-
-#q-status {
-  border-top: 0;
-  background: transparent;
-  padding: 0 var(--q-s2);
-  height: 28px;
-  font-size: 11px;
-  letter-spacing: 0.01em;
-}
-body.q-glass #q-status { border-top: 0; }
-#q-status .q-status-left, #q-status .q-status-right { gap: 2px; }
-#q-status .q-cell {
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 7px;
-  opacity: 0.62;
-  transition: opacity 0.14s ease, background-color 0.14s ease;
-  font-variant-numeric: tabular-nums;
-}
-#q-status:hover .q-cell { opacity: 0.8; }
-#q-status .q-cell.click:hover {
-  opacity: 1;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-}
-#q-status .q-sep { opacity: 0.32; margin: 0 1px; }
-#q-status .q-path { opacity: 0.5; }
-#q-status .q-path::after { content: "›"; margin: 0 5px; opacity: 0.6; }
-#q-status .q-dirty {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: currentColor; opacity: 0.55;
-}
-.q-git-branch::before { content: none; }
-
-/* ---- terminal ------------------------------------------------------------ */
-
-/* a flex child will not shrink below its content unless min-height is cleared,
- * which is what collapses a scrolling pane inside a column to nothing */
-.q-term-body {
-  display: flex; flex-direction: column;
-  padding: 0 !important; height: 100%; min-height: 0; overflow: hidden;
-}
-.q-term-out {
-  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--q-s3);
-  font-family: var(--q-mono); font-size: 11.5px; line-height: 1.55;
-}
-.q-term-line { white-space: pre-wrap; word-break: break-word; margin-bottom: 2px; }
-.q-term-line.cmd { opacity: 1; margin-top: 8px; }
-.q-term-ps { opacity: 0.4; margin-right: 7px; }
-.q-term-line.out { opacity: 0.82; }
-.q-term-line.err { color: #e0724f; opacity: 0.9; }
-.q-term-line.info { opacity: 0.45; font-style: italic; }
-.q-term-line.busy { display: flex; align-items: center; gap: 8px; opacity: 0.6; }
-.q-term-input-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--q-line);
-}
-.q-term-prompt {
-  font-family: var(--q-mono); font-size: 11px; opacity: 0.45;
-  white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis;
-  direction: rtl; text-align: left;
-}
-.q-term-input {
-  flex: 1; border: 0; background: transparent; outline: none;
-  color: var(--q-fg); font-family: var(--q-mono); font-size: 11.5px;
-}
-.q-term-input:disabled { opacity: 0.4; }
-.q-spinner.sm { width: 10px; height: 10px; border-width: 1.5px; margin: 0; }
-
-/* ---- files --------------------------------------------------------------- */
-
-.q-files-head { display: flex; flex-direction: column; gap: 7px; margin-bottom: 10px; }
-.q-files-filter { padding: 6px 10px; font-size: 12px; }
-.q-files-toggle { display: flex; gap: 5px; }
-.q-files-chip {
-  padding: 2px 9px; border-radius: 10px; font-size: 10.5px; cursor: default;
-  background: color-mix(in srgb, var(--q-fg) 8%, transparent);
-  opacity: 0.6; transition: opacity 0.14s, background-color 0.14s;
-}
-.q-files-chip.on { opacity: 1; background: var(--q-accent-soft); }
-.q-fgroup { margin-bottom: 12px; }
-.q-fgroup-name {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 10.5px; opacity: 0.42; margin-bottom: 3px; padding: 0 4px;
-}
-.q-fgroup-name span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.q-fgroup-name i { font-style: normal; opacity: 0.7; }
-.q-file {
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 7px; border-radius: 7px; cursor: default;
-  transition: background-color 0.12s ease;
-}
-.q-file:hover { background: color-mix(in srgb, var(--q-fg) 9%, transparent); }
-.q-file.here { background: var(--q-accent-soft); }
-.q-file:hover { background: var(--q-e1); }
-.q-file-name { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.q-file-meta { font-size: 10px; opacity: 0.4; white-space: nowrap; font-variant-numeric: tabular-nums; }
-
-/* ---- git section --------------------------------------------------------- */
-
-.q-git-head {
-  display: flex; align-items: baseline; gap: var(--q-s2);
-  padding: 0 6px 8px;
-}
-.q-git-b {
-  display: flex; align-items: center; gap: 5px;
-  font-family: var(--q-mono); font-size: 12px; font-weight: 600;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.q-git-n { margin-left: auto; font-size: 10.5px; color: var(--q-faint); white-space: nowrap; }
-.q-git-acts { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 6px 10px; }
-.q-git-act {
-  padding: 3px 9px; border-radius: 10px; font-size: 10.5px; cursor: default;
-  background: var(--q-e1); color: var(--q-muted);
-}
-.q-git-act:hover { background: var(--q-e2); color: var(--q-fg); }
-.q-git-row {
-  display: flex; align-items: center; gap: 8px;
-  min-height: var(--q-row); padding: 3px 6px;
-  border-radius: var(--q-r1); cursor: default;
-}
-.q-git-row:hover { background: var(--q-e1); }
-/* staged and unstaged are the only distinction worth a colour here */
-.q-git-code {
-  flex: none; width: 13px; text-align: center;
-  font-family: var(--q-mono); font-size: 11px; font-weight: 700;
-  color: var(--q-faint);
-}
-.q-git-row.staged .q-git-code { color: var(--q-accent); }
-.q-git-code.deleted { color: #e0724f; }
-.q-git-path {
-  flex: 1; min-width: 0; font-size: 12px; direction: rtl; text-align: left;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.q-git-what { font-size: 10px; color: var(--q-faint); white-space: nowrap; }
-
-/* ---- plain text view ----------------------------------------------------- *
- * a flat monospaced pane over the document area. it is deliberately not styled
- * like the editor: no prose measure, no rendered anything, a line-number gutter
- * and a read-only badge, so there is never a moment where you think you are
- * looking at something you can type into.
- */
-
-#q-view {
-  position: fixed;
-  display: none;
-  flex-direction: column;
-  background: var(--q-bg);
-  z-index: 10;
-  overflow: hidden;
-}
-#q-view.q-open { display: flex; }
-.q-view-head {
-  flex: none;
-  display: flex; align-items: center; gap: var(--q-s2);
-  padding: var(--q-s2) var(--q-s3);
-  border-bottom: 1px solid var(--q-line);
-  font-size: 12px;
-}
-.q-view-icon { display: flex; opacity: 0.6; }
-.q-view-name {
-  font-family: var(--q-mono); font-size: 12px; font-weight: 600;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.q-view-meta { color: var(--q-faint); font-size: 10.5px; white-space: nowrap; }
-.q-view-ro {
-  padding: 1px 7px; border-radius: 9px; font-size: 9.5px;
-  text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
-  color: var(--q-muted); background: var(--q-e2);
-}
-.q-view-acts { margin-left: auto; display: flex; gap: 4px; }
-.q-view-act {
-  padding: 3px 9px; border-radius: 10px; font-size: 10.5px; cursor: default;
-  color: var(--q-faint);
-}
-.q-view-act:hover { background: var(--q-e1); color: var(--q-fg); }
-.q-view-note {
-  flex: none; padding: 6px var(--q-s3);
-  font-size: 11px; color: var(--q-muted);
-  background: var(--q-e1);
-}
-.q-view-body {
-  flex: 1; min-height: 0; overflow: auto;
-  padding: var(--q-s3) 0 40px;
-  font-family: var(--q-mono); font-size: 12px; line-height: 1.55;
-  tab-size: 4; -moz-tab-size: 4;
-}
-.q-view-row { display: flex; align-items: flex-start; }
-.q-view-row:hover { background: var(--q-e1); }
-.q-view-n {
-  flex: none; text-align: right; padding: 0 var(--q-s3) 0 var(--q-s2);
-  color: var(--q-faint); font-variant-numeric: tabular-nums;
-  user-select: none; -webkit-user-select: none;
-}
-.q-view-l {
-  flex: 1; min-width: 0; padding-right: var(--q-s4);
-  white-space: pre; overflow: visible;
-}
-.q-view-body.wrap .q-view-l { white-space: pre-wrap; word-break: break-word; }
-.q-view-body.wrap { overflow-x: hidden; }
-/* the pane is code: it keeps a mono face whatever the ui typeface is set to */
-body.q-font-on .q-view-body { font-family: var(--q-mono); }
-
-/* ---- motion -------------------------------------------------------------- *
- * short and eased, and every one of them opt-out under reduced motion. the
- * palette and the panel are the two things that appear often enough that a hard
- * cut is jarring.
- */
-
-@keyframes q-rise { from { opacity: 0; transform: translate3d(0, 6px, 0); }
-                    to   { opacity: 1; transform: translate3d(0, 0, 0); } }
-@keyframes q-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes q-slide-in { from { opacity: 0; transform: translate3d(12px, 0, 0); }
-                        to   { opacity: 1; transform: translate3d(0, 0, 0); } }
-
-/* the compositor needs to be told in advance, or the first frame of every
- * animation is spent creating the layer */
-.q-pal-box, .q-sheet, #q-panel { will-change: transform, opacity; }
-#q-panel, .q-pal-list, .q-panel-body { contain: layout paint; }
-
-#q-palette.q-open, #q-modal.q-open { animation: q-fade 0.1s linear both; }
-#q-palette.q-open .q-pal-box, #q-modal.q-open .q-sheet {
-  animation: q-rise 0.14s var(--q-ease) both;
-}
-#q-panel.q-open { animation: q-slide-in 0.16s var(--q-ease) both; }
-.q-pal-item, .q-rail-btn, .q-model, .q-tag, .q-back {
-  transition: background-color var(--q-fast) var(--q-ease), color var(--q-fast) var(--q-ease);
-}
-.q-btn { transition: background-color 0.12s ease, transform 0.08s ease; }
-.q-btn:active { transform: scale(0.97); }
-
-
-@media (prefers-reduced-motion: reduce) {
-  #q-palette.q-open, #q-modal.q-open, #q-panel.q-open,
-  #q-palette.q-open .q-pal-box, #q-modal.q-open .q-sheet,
-  .q-file, .q-pick-item { animation: none; }
-  .q-pal-item, .q-rail-btn, .q-model, .q-tag, .q-back, .q-btn, #q-status .q-cell {
-    transition: none;
-  }
-}
-
-
-/* ---- obsidian pass -------------------------------------------------------- *
- * three rules do most of the work here.
- *
- * one: text has three levels, not two. normal, muted and faint. almost
- * everything that isn't the words you wrote sits on the bottom two, which is
- * why the chrome disappears when you're reading.
- *
- * two: nothing has a border unless it separates two scrolling regions. depth
- * comes from fills.
- *
- * three: rows are 26px and radius 4. small enough to be dense, round enough not
- * to look like a table.
- */
-
-:root {
-  --q-muted: color-mix(in srgb, var(--q-fg) 62%, transparent);
-  --q-faint: color-mix(in srgb, var(--q-fg) 38%, transparent);
-  --q-row: 26px;
-}
-
-/* sidebar: a rail, a section name, then content. no rule between the last two. */
-#q-panel { border-left: 1px solid var(--q-line); }
-.q-panel-body { padding: 4px 8px 10px; }
-
-/* rows */
-.q-file, .q-pal-item, .q-pick-item, .q-model, .q-back {
-  min-height: var(--q-row);
-  border-radius: var(--q-r1);
-}
-.q-file { padding: 3px 6px; }
-.q-file-name { font-size: 12.5px; }
-.q-file-meta, .q-back-path, .q-pick-path { color: var(--q-faint); }
-.q-fgroup-name { color: var(--q-faint); padding: 0 6px; margin: 10px 0 2px; }
-.q-fgroup:first-child .q-fgroup-name { margin-top: 0; }
-
-/* section labels sit in the flow rather than being boxed */
-.q-pal-cat { color: var(--q-faint); }
-.q-pal-title { color: var(--q-fg); }
-.q-pal-item.sel::before { display: none; }
-.q-pal-item.sel { background: var(--q-accent-soft); }
-
-/* inputs: filled, borderless, the accent only on focus */
-.q-input, .q-pal-input, .q-files-filter {
-  background: var(--q-e1);
-  border: 1px solid transparent;
-  border-radius: var(--q-r2);
-}
-.q-pal-input {
-  background: transparent; border: 0;
-  border-bottom: 1px solid var(--q-line);
-  border-radius: 0;
-}
-.q-input:focus, .q-files-filter:focus {
-  border-color: var(--q-accent);
-  background: var(--q-e1);
-}
-
-.q-pal-box, .q-sheet { border-radius: var(--q-r3); border-color: var(--q-line); }
-.q-pal-foot { color: var(--q-faint); }
-
-kbd {
-  border: 0;
-  background: var(--q-e2);
-  color: var(--q-muted);
-  opacity: 1;
-  padding: 2px 6px;
-  border-radius: var(--q-r1);
-}
-
-/* ---- the path in the status bar is a control, not a label ----------------- *
- * every segment is clickable and opens the file list scoped to that folder, so
- * "where am i" and "show me the rest of this folder" are the same gesture.
- */
-
-#q-status .q-crumb {
-  padding: 2px 5px; border-radius: 3px; cursor: default;
-  color: var(--q-faint);
-  transition: background-color var(--q-fast) var(--q-ease), color var(--q-fast) var(--q-ease);
-}
-#q-status .q-crumb:hover { background: var(--q-e2); color: var(--q-fg); }
-#q-status .q-crumb-sep { color: var(--q-faint); opacity: 0.5; margin: 0 1px; }
-#q-status .q-crumb.file { color: var(--q-muted); }
-#q-status .q-cell.path { padding: 1px 3px; gap: 2px; }
-#q-status .q-cell.path:hover { background: none; }
-
-/* ---- the palette ---------------------------------------------------------- *
- * four things were pulled from, and it matters which part came from where.
- *
- * ghostty: the ground and the colours. these are the exact ansi values from the
- * terminal config on this machine, so the editor and the terminal beside it are
- * the same room.
- *
- * discord: the text hierarchy. three levels, and almost everything that isn't
- * the words you wrote sits on the bottom two.
- *
- * apple: restraint on colour. one accent, and the prose stays a single colour,
- * no rainbow headings. an editor is for reading.
- *
- * lazyvim: the structures only: which-key, the picker layout, titled floats, a
- * mode block. its colour scheme is deliberately not here.
- */
-
+/* the quire palette. these are the exact ansi values from ~/.config/ghostty on
+ * this machine, so the editor and the terminal beside it are the same room. */
 body.q-theme {
   --gh-bg:      #1c1c1c;
   --gh-bg-dark: #161616;
@@ -1010,72 +135,1031 @@ body.q-theme {
   --q-accent: var(--gh-blue);
   --q-accent-soft: rgba(134, 154, 181, 0.18);
   --q-accent-ghost: rgba(134, 154, 181, 0.10);
-  --q-e1: rgba(230, 230, 230, 0.05);
-  --q-e2: rgba(230, 230, 230, 0.09);
-  --q-e3: rgba(230, 230, 230, 0.14);
+  --q-accent-line: rgba(134, 154, 181, 0.42);
+  --q-on-accent: #14161a;
+  --q-e0: rgba(230, 230, 230, 0.03);
+  --q-e1: rgba(230, 230, 230, 0.055);
+  --q-e2: rgba(230, 230, 230, 0.10);
+  --q-e3: rgba(230, 230, 230, 0.15);
   --q-glass-tint: 28, 28, 28;
+  /* a float sits a shade above the window rather than matching it, so a popover
+   * has an edge even where its border runs over a dark part of the desktop */
+  --q-float-bg: #202020;
+
+  --q-ok: #86ac86;
+  --q-warn: #b3a47c;
+  --q-bad: #b58686;
 }
 
-/* prose stays one colour. only the things that are not prose, code and links and
- * marks, get any at all, and they get the muted ansi ones. */
-body.q-theme #write { color: var(--gh-fg); }
-body.q-theme #write h1, body.q-theme #write h2, body.q-theme #write h3,
-body.q-theme #write h4, body.q-theme #write h5, body.q-theme #write h6 {
-  color: var(--gh-fg);
-  letter-spacing: -0.018em;
+:root {
+  --q-ok: #3fb950;
+  --q-warn: #d9a441;
+  --q-bad: #e05252;
 }
-body.q-theme #write a { color: var(--gh-blue); }
-body.q-theme #write code { color: var(--gh-green); background: rgba(230,230,230,0.06) !important; }
-body.q-theme #write blockquote { border-left-color: var(--gh-line); color: var(--gh-dim); }
-body.q-theme #write mark { background: rgba(179,164,124,0.26); color: var(--gh-yellow); }
-body.q-theme #write hr, body.q-theme #write table td,
-body.q-theme #write table th { border-color: var(--gh-line); }
-body.q-theme .md-task-list-item > input { accent-color: var(--gh-green); }
 
-/* ---- floats get a border and a title in it -------------------------------- *
+/* ---- base ----------------------------------------------------------------- */
+
+#q-palette, #q-modal, #q-panel, #q-status, #q-toast, #q-whichkey,
+#q-guardbar, #q-view, #q-run-layer, #q-fm-layer {
+  font-family: var(--q-ui);
+  font-size: var(--q-t-md);
+  color: var(--q-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* everything visible-vs-hidden here is `.q-open`, never `.show`. the host
+ * bundles bootstrap 3, whose `.show { display: block !important }` beats
+ * `#q-palette.show { display: flex }` on the !important flag alone, which
+ * silently turned the palette and every dialog into a block, so the centring
+ * stopped applying and both boxes sat against the left edge of the window. */
+
+/* thin overlay scrollbars everywhere ours renders, apple's rather than the web's */
+#q-panel ::-webkit-scrollbar,
+#q-palette ::-webkit-scrollbar,
+#q-view ::-webkit-scrollbar,
+#q-modal ::-webkit-scrollbar { width: 10px; height: 10px; }
+#q-panel ::-webkit-scrollbar-thumb,
+#q-palette ::-webkit-scrollbar-thumb,
+#q-view ::-webkit-scrollbar-thumb,
+#q-modal ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--q-fg) 16%, transparent);
+  border-radius: var(--q-rp);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+#q-panel ::-webkit-scrollbar-thumb:hover,
+#q-view ::-webkit-scrollbar-thumb:hover,
+#q-palette ::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--q-fg) 30%, transparent);
+}
+#q-panel ::-webkit-scrollbar-track,
+#q-view ::-webkit-scrollbar-track { background: transparent; }
+
+.q-bad  { color: var(--q-bad); }
+.q-warn { color: var(--q-warn); }
+.q-ok   { color: var(--q-ok); }
+
+/* icons take currentColor and carry the text level they sit in, rather than
+ * having an opacity of their own to argue with it */
+.q-i { flex: none; vertical-align: -2px; opacity: 0.9; }
+
+/* ---- controls ------------------------------------------------------------- *
+ * every button, pill and chip in the app is one of the four things in this
+ * section. they share a reset, a height, a radius, a transition and the same
+ * four states, which is the only reason a git action and a file filter and a
+ * dialog button read as the same product.
+ *
+ * states, in order: rest is a fill one step up from its ground and text one
+ * level down from normal. hover brings the text up and the fill up a step.
+ * active presses. selected takes the accent, and only the accent.
+ */
+
+.q-btn, .q-pill, .q-iconbtn, .q-rail-btn, .q-run-btn, .q-guardbar-btn,
+.q-files-chip, .q-git-act, .q-sess-act, .q-view-act, .q-tag {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  margin: 0;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  text-decoration: none;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+  transition: background-color var(--q-fast) var(--q-ease),
+              color var(--q-fast) var(--q-ease),
+              box-shadow var(--q-fast) var(--q-ease),
+              transform 0.07s var(--q-ease);
+}
+.q-btn:active, .q-pill:active, .q-iconbtn:active, .q-guardbar-btn:active,
+.q-files-chip:active, .q-git-act:active, .q-sess-act:active, .q-view-act:active {
+  transform: scale(0.965);
+}
+
+/* the button. dialog footers, the guard bar, anywhere a decision is made. */
+.q-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: var(--q-h-ctl);
+  padding: 0 15px;
+  border-radius: var(--q-r2);
+  background: var(--q-e1);
+  color: var(--q-muted);
+  font-size: var(--q-t-md);
+  font-weight: 550;
+  letter-spacing: -0.005em;
+  box-shadow: var(--q-sheen);
+}
+.q-btn:hover { background: var(--q-e2); color: var(--q-fg); }
+.q-btn.primary {
+  background: var(--q-accent);
+  color: var(--q-on-accent);
+  font-weight: 650;
+  box-shadow: var(--q-sheen), 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.q-btn.primary:hover { background: color-mix(in srgb, var(--q-accent) 88%, #fff); }
+/* a button with nothing behind it, for the third choice in a dialog that should
+ * not compete with the two that matter */
+.q-btn.ghost { background: transparent; box-shadow: none; color: var(--q-faint); }
+.q-btn.ghost:hover { background: var(--q-e1); color: var(--q-muted); }
+.q-btn.danger { color: var(--q-bad); }
+.q-btn.danger:hover { background: color-mix(in srgb, var(--q-bad) 16%, transparent); color: var(--q-bad); }
+.q-btn.sm { height: 24px; padding: 0 11px; font-size: var(--q-t-ui); border-radius: var(--q-r1); }
+
+/* the pill. a small verb or a filter, always inside a panel, never the thing a
+ * dialog is asking. same states as a button at two thirds the size. */
+.q-pill, .q-files-chip, .q-git-act, .q-sess-act, .q-view-act {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: var(--q-h-pill);
+  padding: 0 10px;
+  border-radius: var(--q-rp);
+  background: var(--q-e1);
+  color: var(--q-muted);
+  font-size: var(--q-t-meta);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.q-pill:hover, .q-files-chip:hover, .q-git-act:hover,
+.q-sess-act:hover, .q-view-act:hover { background: var(--q-e2); color: var(--q-fg); }
+.q-pill.on, .q-pill.sel, .q-files-chip.on {
+  background: var(--q-accent-soft);
+  color: var(--q-fg);
+  box-shadow: inset 0 0 0 1px var(--q-accent-line);
+}
+.q-pill.quiet { background: transparent; }
+.q-pill.quiet:hover { background: var(--q-e1); }
+.q-pill .q-i { opacity: 0.8; }
+/* a pill's own counter: the number rides inside the pill rather than beside it */
+.q-pill i, .q-files-chip i {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--q-faint);
+  font-size: var(--q-t-label);
+}
+.q-pill:hover i, .q-files-chip:hover i { color: var(--q-muted); }
+.q-pill.on i, .q-files-chip.on i { color: var(--q-accent); }
+
+/* a count or a state, shaped like a pill and not pressable. it never takes a
+ * hover, which is the whole difference and the reason it can share the shape. */
+.q-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 18px; padding: 0 7px;
+  border-radius: var(--q-rp);
+  background: var(--q-e2);
+  color: var(--q-muted);
+  font-size: var(--q-t-label);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.q-badge.accent { background: var(--q-accent-soft); color: var(--q-fg); }
+.q-badge.caps { text-transform: uppercase; letter-spacing: 0.07em; }
+
+/* a square button that is only an icon. the close on the sidebar, the dismiss on
+ * the guard bar. 26px, because a 13px glyph needs 6 either side to be hittable. */
+.q-iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: var(--q-r1);
+  background: transparent;
+  color: var(--q-faint);
+}
+.q-iconbtn:hover { background: var(--q-e2); color: var(--q-fg); }
+
+/* inputs: filled, borderless, and the accent only on focus. the ring is the
+ * same one every focusable thing gets, so tabbing through never changes shape. */
+.q-input, .q-files-filter {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--q-h-ctl);
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--q-r2);
+  background: var(--q-e1);
+  color: var(--q-fg);
+  font: inherit;
+  font-size: var(--q-t-md);
+  outline: none;
+  transition: background-color var(--q-fast) var(--q-ease),
+              border-color var(--q-fast) var(--q-ease),
+              box-shadow var(--q-fast) var(--q-ease);
+}
+.q-input::placeholder, .q-files-filter::placeholder,
+.q-pal-input::placeholder, .q-term-input::placeholder { color: var(--q-faint); }
+.q-input:focus, .q-files-filter:focus {
+  background: var(--q-e2);
+  border-color: var(--q-accent-line);
+  box-shadow: 0 0 0 3px var(--q-accent-ghost);
+}
+textarea.q-input { height: auto; padding: 9px 12px; line-height: 1.5; resize: vertical; }
+
+/* one focus ring, apple's proportions, on everything focusable. two layers so it
+ * reads on a filled control as well as on the window. */
+#q-panel :focus-visible,
+#q-palette :focus-visible,
+#q-view :focus-visible,
+#q-guardbar :focus-visible,
+#q-modal :focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--q-bg), 0 0 0 4px color-mix(in srgb, var(--q-accent) 65%, transparent);
+}
+
+kbd {
+  font-family: var(--q-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--q-r1);
+  background: var(--q-e2);
+  color: var(--q-muted);
+  white-space: nowrap;
+}
+/* a command with no shortcut renders <kbd></kbd>. at the old padding that was a
+ * sliver nobody saw; at a real min-width it is an empty grey box on two thirds
+ * of the rows in the palette. */
+kbd:empty { display: none; }
+
+/* ---- status bar ----------------------------------------------------------- *
+ * no edge of its own. the cells only take a shape when you point at them, so at
+ * rest it reads as the bottom of the page rather than a strip bolted under it.
+ */
+
+#q-status {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: 28px;
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--q-s2);
+  font-size: var(--q-t-sm);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--q-muted);
+  background: transparent;
+  border-top: 0;
+  z-index: 12;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.q-status-on #q-status { display: flex; }
+/* the host reserves 25px at the bottom; the bar is 28 and the text has to move
+ * out from under it or the last line reads through the words count */
+body.q-status-on #typora-sidebar { bottom: 28px; }
+body.q-status-on content { bottom: 28px; }
+
+#q-status .q-status-left, #q-status .q-status-right {
+  display: flex; align-items: center; gap: 2px; min-width: 0;
+}
+#q-status .q-cell {
+  display: flex; align-items: center; gap: 6px;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: var(--q-r1);
+  white-space: nowrap;
+  opacity: 0.62;
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--q-fast) ease, background-color var(--q-fast) ease;
+}
+#q-status:hover .q-cell { opacity: 0.82; }
+#q-status .q-cell.click { cursor: default; }
+#q-status .q-cell.click:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+#q-status .q-sep { opacity: 0.32; margin: 0 1px; }
+#q-status i { font-style: normal; }
+#q-status .q-cell .q-i { opacity: 0.65; }
+
+/* the path is a control, not a label: every segment opens the file list scoped
+ * to that folder, so "where am i" and "show me the rest of this folder" are the
+ * same gesture. */
+#q-status .q-cell.path { padding: 0 4px; gap: 1px; }
+#q-status .q-cell.path:hover { background: none; }
+#q-status .q-crumb {
+  padding: 2px 5px;
+  border-radius: var(--q-r1);
+  color: var(--q-faint);
+  transition: background-color var(--q-fast) var(--q-ease), color var(--q-fast) var(--q-ease);
+}
+#q-status .q-crumb:hover { background: var(--q-e2); color: var(--q-fg); }
+#q-status .q-crumb-sep { color: var(--q-faint); opacity: 0.45; margin: 0 1px; }
+#q-status .q-crumb.file { color: var(--q-muted); font-weight: 600; }
+#q-status .q-dirty {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--q-warn); flex: none;
+}
+.q-git-branch { display: inline-flex; align-items: center; }
+.q-git-dirty {
+  margin-left: 6px; padding: 0 6px;
+  height: 15px; display: inline-flex; align-items: center;
+  border-radius: var(--q-rp);
+  background: var(--q-e2);
+  color: var(--q-muted);
+  font-size: var(--q-t-label); font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.q-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--q-faint); }
+.q-dot.on { background: var(--q-ok); }
+
+/* lualine's leftmost segment: a coloured block for the mode, then everything
+ * else quiet. it is the only saturated thing in the chrome, which is what makes
+ * it readable at a glance without being loud. */
+#q-status .q-cell.mode {
+  background: var(--q-accent);
+  color: var(--q-on-accent);
+  font-weight: 700;
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  padding: 0 9px;
+  height: 18px;
+  border-radius: var(--q-r1);
+  opacity: 1;
+  box-shadow: var(--q-sheen);
+}
+#q-status:hover .q-cell.mode { opacity: 1; }
+#q-status .q-cell.mode:hover { background: color-mix(in srgb, var(--q-accent) 86%, #fff); }
+
+/* ---- toast ---------------------------------------------------------------- */
+
+#q-toast {
+  position: fixed;
+  bottom: 44px; left: 50%;
+  transform: translate(-50%, 10px);
+  max-width: 60vw;
+  padding: 10px 16px;
+  background: var(--q-float-bg);
+  border: 1px solid var(--q-line);
+  border-radius: var(--q-r3);
+  box-shadow: var(--q-shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s var(--q-ease), transform 0.16s var(--q-ease);
+  z-index: 60;
+  font-size: var(--q-t-ui);
+  line-height: 1.5;
+}
+#q-toast.q-open { opacity: 1; transform: translate(-50%, 0); }
+#q-toast pre {
+  margin: 6px 0 0;
+  font-family: var(--q-mono); font-size: var(--q-t-sm);
+  white-space: pre-wrap; color: var(--q-muted);
+}
+#q-toast b { font-weight: 650; }
+
+/* ---- floats --------------------------------------------------------------- *
  * every neovim float is a rounded box with a 1px edge and its name sitting in
  * the top border. that title is what stops a stack of popups being anonymous.
+ *
+ * they are opaque on purpose. a translucent dialog over an already translucent
+ * window is mud, and a moving backdrop-filter on top of a live blur makes the
+ * compositor re-render the whole stack every frame, which is exactly what a
+ * dropped palette animation looks like.
  */
 
 .q-pal-box, .q-sheet, .q-wk-box {
   position: relative;
-  border: 1px solid var(--q-line);
-  background: var(--q-bg);
+  background: var(--q-float-bg);
+  border: 1px solid color-mix(in srgb, var(--q-accent) 26%, var(--q-line));
+  border-radius: var(--q-r3);
+  box-shadow: var(--q-shadow);
 }
-body.q-theme .q-pal-box,
-body.q-theme .q-sheet,
-body.q-theme .q-wk-box { border-color: rgba(122, 162, 247, 0.34); background: var(--tn-bg); }
-
 .q-float-title, .q-wk-title {
-  position: absolute; top: -8px; left: 16px;
+  position: absolute; top: -8px; left: 18px;
   padding: 0 7px;
-  font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em;
+  font-size: var(--q-t-label);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
   color: var(--q-accent);
-  background: var(--q-bg);
+  background: var(--q-float-bg);
 }
-body.q-theme .q-float-title,
-body.q-theme .q-wk-title { background: var(--tn-bg); }
-.q-wk-title span { color: var(--q-faint); font-weight: 400; margin-left: 6px; }
+.q-wk-title span { color: var(--q-faint); font-weight: 500; margin-left: 6px; }
 
-/* ---- telescope layout ----------------------------------------------------- */
+/* ---- command palette ------------------------------------------------------ *
+ * telescope's two-pane layout: what matched on the left, what the selected thing
+ * actually is on the right.
+ */
 
-.q-pal-prompt { display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+#q-palette {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.46);
+  display: none;
+  justify-content: center;
+  align-items: flex-start;
+  z-index: 70;
+}
+#q-palette.q-open { display: flex; }
+.q-pal-box {
+  margin-top: 12vh;
+  width: 720px;
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+}
+.q-pal-prompt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 18px;
+}
 .q-pal-caret { color: var(--q-accent); font-size: 17px; line-height: 1; }
-.q-pal-input { padding: 14px 0; border-bottom: 0; }
-.q-pal-cols { display: flex; border-top: 1px solid var(--q-line); min-height: 260px; }
-.q-pal-list { flex: 1 1 58%; max-height: 46vh; }
+.q-pal-input {
+  flex: 1; min-width: 0;
+  padding: 15px 0;
+  border: 0; background: transparent;
+  color: var(--q-fg);
+  font-size: 16px; font-weight: 550; letter-spacing: -0.012em;
+  outline: none;
+}
+.q-pal-cols { display: flex; border-top: 1px solid var(--q-line); min-height: 268px; }
+.q-pal-list { flex: 1 1 58%; max-height: 46vh; overflow-y: auto; padding: 6px; }
+.q-pal-item {
+  position: relative;
+  display: flex; align-items: center; gap: var(--q-s3);
+  min-height: var(--q-row);
+  padding: 4px var(--q-s3) 4px 10px;
+  border-radius: var(--q-r2);
+  cursor: default;
+}
+.q-pal-item:hover { background: var(--q-e1); }
+.q-pal-item.sel {
+  background: var(--q-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--q-accent-line);
+}
+.q-pal-cat {
+  flex: none; min-width: 66px;
+  font-size: var(--q-t-label); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--q-faint);
+}
+.q-pal-title {
+  flex: 1; min-width: 0;
+  color: var(--q-fg); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-pal-item kbd { opacity: 0.72; }
+.q-pal-item.sel kbd { opacity: 1; color: var(--q-fg); }
+.q-pal-empty {
+  padding: 26px 20px; text-align: center;
+  font-size: var(--q-t-ui); color: var(--q-faint); line-height: 1.7;
+}
 .q-pal-detail {
   flex: 0 0 42%;
   border-left: 1px solid var(--q-line);
-  padding: 14px 16px;
-  font-size: 12px;
+  padding: 16px 18px;
+  font-size: var(--q-t-ui);
 }
-.q-pd-title { font-size: 13.5px; font-weight: 600; margin-bottom: 12px; color: var(--q-fg); }
-.q-pd-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.q-pd-title {
+  font-size: var(--q-t-md); font-weight: 650;
+  margin-bottom: 14px; color: var(--q-fg);
+  line-height: 1.35;
+}
+.q-pd-row {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; padding: 5px 0;
+}
 .q-pd-row span { color: var(--q-faint); }
-.q-pd-row b { font-weight: 500; color: var(--q-muted); }
-.q-pd-hint { margin-top: 14px; font-size: 11px; color: var(--q-faint); }
-.q-pal-box { width: 720px; }
+.q-pd-row b { font-weight: 550; color: var(--q-muted); }
+.q-pd-hint { margin-top: 16px; font-size: var(--q-t-sm); color: var(--q-faint); }
+.q-pal-foot {
+  display: flex; gap: 16px; align-items: center;
+  padding: 9px 16px;
+  border-top: 1px solid var(--q-line);
+  font-size: var(--q-t-sm);
+  color: var(--q-faint);
+}
+.q-pal-foot span { display: flex; align-items: center; gap: 6px; }
+
+/* ---- modal ---------------------------------------------------------------- */
+
+#q-modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.46);
+  display: none;
+  justify-content: center;
+  align-items: flex-start;
+  z-index: 80;
+}
+#q-modal.q-open { display: flex; }
+.q-sheet {
+  margin-top: 14vh;
+  width: 520px;
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+}
+#q-modal[data-wide="1"] .q-sheet { width: 820px; max-width: calc(100vw - 48px); }
+.q-sheet-title {
+  padding: 18px 22px 0;
+  font-size: var(--q-t-lg); font-weight: 650; letter-spacing: -0.012em;
+}
+.q-sheet-body {
+  padding: 14px 22px 18px;
+  max-height: 58vh; overflow-y: auto;
+  line-height: 1.6; font-size: var(--q-t-md);
+  color: var(--q-muted);
+}
+.q-sheet-body p { margin: 0 0 10px; }
+.q-sheet-body p:last-child { margin-bottom: 0; }
+.q-sheet-body b { color: var(--q-fg); font-weight: 650; }
+.q-sheet-foot {
+  display: flex; justify-content: flex-end; align-items: center; gap: var(--q-s2);
+  padding: 12px 18px;
+  border-top: 1px solid var(--q-line);
+  background: var(--q-e0);
+}
+
+.q-pre {
+  font-family: var(--q-mono);
+  font-size: var(--q-t-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--q-r2);
+  background: var(--q-e1);
+  color: var(--q-muted);
+  max-height: 46vh;
+  overflow: auto;
+}
+.q-note { font-size: var(--q-t-ui); color: var(--q-faint); margin: 0 0 14px; line-height: 1.6; }
+
+table.q-stats { width: 100%; border-collapse: collapse; font-size: var(--q-t-ui); }
+table.q-stats td { padding: 7px 0; border-bottom: 1px solid var(--q-line); }
+table.q-stats tr:last-child td { border-bottom: 0; }
+table.q-stats td:first-child { color: var(--q-faint); }
+table.q-stats td:last-child {
+  text-align: right; font-variant-numeric: tabular-nums; color: var(--q-muted);
+  font-family: var(--q-mono); font-size: var(--q-t-sm);
+}
+
+.q-keymap table { width: 100%; border-collapse: collapse; font-size: var(--q-t-ui); }
+.q-keymap tr { cursor: default; }
+.q-keymap tr:hover { background: var(--q-e1); }
+.q-keymap td { padding: 6px 8px; border-bottom: 1px solid var(--q-line); }
+.q-keymap tr:hover td:nth-child(2) { color: var(--q-fg); }
+.q-keymap td.cat {
+  width: 92px; font-size: var(--q-t-label); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--q-faint);
+}
+.q-keymap td.k { text-align: right; width: 100px; }
+
+.q-capture { text-align: center; padding: 26px 0 22px; }
+.q-capture-key {
+  font-size: 26px; font-family: var(--q-mono); font-weight: 600;
+  min-height: 34px; color: var(--q-fg);
+}
+.q-capture-hint { margin-top: 12px; font-size: var(--q-t-sm); color: var(--q-faint); }
+
+/* ---- pickers and lists ---------------------------------------------------- */
+
+.q-picklist, .q-mentions { max-height: 44vh; overflow-y: auto; margin-top: 10px; }
+.q-pick-item, .q-mention {
+  display: flex; gap: 10px; align-items: baseline;
+  min-height: var(--q-row);
+  padding: 5px 10px;
+  border-radius: var(--q-r2);
+  cursor: default;
+}
+.q-pick-item:hover, .q-mention:hover { background: var(--q-e1); }
+.q-pick-item.sel { background: var(--q-accent-soft); }
+.q-pick-name { font-weight: 600; color: var(--q-fg); }
+.q-pick-path, .q-mention-file {
+  font-size: var(--q-t-sm); color: var(--q-faint); font-family: var(--q-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-mention { flex-direction: column; gap: 3px; align-items: stretch; }
+.q-mention-text { font-size: var(--q-t-ui); color: var(--q-muted); }
+
+.q-modellist { display: flex; flex-direction: column; gap: 4px; }
+.q-model {
+  min-height: var(--q-row);
+  display: flex; align-items: center;
+  padding: 6px 12px;
+  border-radius: var(--q-r2);
+  font-family: var(--q-mono); font-size: var(--q-t-ui); font-weight: 550;
+  color: var(--q-muted);
+  cursor: default;
+}
+.q-model:hover { background: var(--q-e2); color: var(--q-fg); }
+.q-model.sel {
+  background: var(--q-accent-soft); color: var(--q-fg);
+  box-shadow: inset 0 0 0 1px var(--q-accent-line);
+}
+
+/* ---- assistant ------------------------------------------------------------ */
+
+.q-ai-run { min-height: 90px; }
+.q-ai-status { font-size: var(--q-t-sm); color: var(--q-faint); margin-bottom: 8px; }
+.q-ai-out { font: inherit; white-space: pre-wrap; margin: 0; line-height: 1.65; }
+.q-spinner {
+  width: 15px; height: 15px; margin-bottom: 10px;
+  border: 2px solid var(--q-line);
+  border-top-color: var(--q-accent);
+  border-radius: 50%;
+  animation: q-spin 0.7s linear infinite;
+}
+.q-spinner.sm { width: 10px; height: 10px; border-width: 1.5px; margin: 0; }
+@keyframes q-spin { to { transform: rotate(360deg); } }
+
+/* ---- the sidebar ---------------------------------------------------------- *
+ * one column, every section in it, an icon rail down the window edge. the rail
+ * is on the outer edge rather than the inner one for the same reason discord's
+ * is: it belongs to the window, not to the content next to it, and putting it
+ * inboard would leave a strip of icons floating between two readable columns.
+ *
+ * the column itself is a card with a 6px gutter around it. the window frame
+ * cannot be rounded, NSVisualEffectView has fixed materials and no radius, so
+ * the rounding has to happen one layer in. a card inside a gutter also means the
+ * glass shows down both sides of it, which is the point of having glass.
+ */
+
+#q-panel {
+  position: fixed;
+  top: 28px; right: 0; bottom: 0;
+  width: var(--q-side-w, 300px);
+  display: none;
+  flex-direction: row;
+  padding: 6px 4px 6px 2px;
+  background: transparent;
+  z-index: 11;
+}
+#q-panel.q-open { display: flex; }
+body.q-status-on #q-panel { bottom: 25px; }
+body.q-panel-open content { right: var(--q-side-w, 300px); }
+/* no transition on this deliberately: reflowing the editor's width in step with
+ * the panel's slide is two layout passes a frame */
+content { transition: none !important; }
+
+/* the drag edge. wider than it looks so it can actually be hit. */
+.q-side-grip {
+  flex: none; width: 6px; margin-right: -2px; z-index: 2;
+  cursor: col-resize; background: transparent;
+  border-radius: var(--q-rp);
+  transition: background-color var(--q-fast) var(--q-ease);
+}
+.q-side-grip:hover { background: var(--q-accent-soft); }
+body.q-side-resizing { cursor: col-resize; user-select: none; }
+body.q-side-resizing * { pointer-events: none; }
+
+.q-side-main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--q-line);
+  border-radius: var(--q-r3);
+  background: var(--q-panel-bg);
+  overflow: hidden;
+}
+.q-side-head {
+  flex: none;
+  display: flex; align-items: center; gap: var(--q-s2);
+  height: 34px;
+  padding: 0 6px 0 12px;
+}
+/* discord's section label: small, uppercase, heavy, faint. it stops reading as
+ * content and starts reading as structure. */
+.q-side-title {
+  flex: 1; min-width: 0;
+  font-size: var(--q-t-label); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.09em; color: var(--q-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-side-stack { flex: 1; min-height: 0; display: flex; }
+
+.q-rail {
+  flex: none; width: 38px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 3px; padding: 2px 0;
+  margin-left: 4px;
+}
+.q-rail-btn {
+  position: relative;
+  width: 32px; height: 32px;
+  border-radius: var(--q-r2);
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  color: var(--q-faint);
+}
+.q-rail-btn:hover { color: var(--q-muted); background: var(--q-e2); }
+.q-rail-btn.sel {
+  color: var(--q-fg);
+  background: var(--q-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--q-accent-line);
+}
+.q-rail-btn .q-i { opacity: 1; }
+
+/* every section keeps its own body and is hidden, not destroyed */
+.q-panel-body {
+  flex: 1; min-width: 0; overflow-y: auto;
+  padding: 2px 8px 12px;
+}
+.q-panel-body[hidden] { display: none !important; }
+
+/* an empty state is a sentence, not a shrug. an icon, what is true, and what to
+ * do about it, in three descending levels of text. */
+.q-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px;
+  padding: 34px 18px;
+  text-align: center;
+}
+.q-empty .q-i { color: var(--q-faint); opacity: 0.45; }
+.q-empty .q-spinner { margin: 2px 0 0; }
+.q-empty-t { font-size: var(--q-t-ui); font-weight: 600; color: var(--q-muted); }
+.q-empty-h {
+  font-size: var(--q-t-sm); color: var(--q-faint); line-height: 1.65;
+  max-width: 30ch;
+}
+.q-empty-h code, .q-empty-h b { color: var(--q-muted); font-weight: 600; }
+.q-panel-empty, .q-panel-loading {
+  padding: 30px 16px; text-align: center;
+  font-size: var(--q-t-ui); color: var(--q-faint); line-height: 1.7;
+}
+.q-panel-loading { color: var(--q-faint); }
+
+/* a section's own header row: a count on the left, verbs on the right. every
+ * panel that has one uses this, which is why they all line up. */
+.q-sec-head {
+  display: flex; align-items: center; gap: var(--q-s2);
+  min-height: 26px;
+  padding: 2px 2px 8px;
+}
+.q-sec-count {
+  font-size: var(--q-t-meta); color: var(--q-faint);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-sec-acts { margin-left: auto; display: flex; gap: 4px; flex: none; }
+
+/* a label between two groups inside one section */
+.q-side-label {
+  padding: 14px 6px 6px;
+  font-size: var(--q-t-label); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.09em; color: var(--q-faint);
+}
+.q-side-label:first-child { padding-top: 2px; }
+
+/* ---- rows ----------------------------------------------------------------- *
+ * one row shape for every list in the app: 28px minimum, r1 corners, a fill on
+ * hover and the accent when it is the one you are on. small enough to be dense,
+ * round enough not to look like a table.
+ */
+
+.q-file, .q-pick-item, .q-model, .q-back, .q-git-row, .q-sess-row, .q-stale-row {
+  min-height: var(--q-row);
+  border-radius: var(--q-r2);
+}
+
+/* ---- files ---------------------------------------------------------------- */
+
+.q-files-head {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 6px 2px 10px;
+}
+.q-files-filter { height: 28px; font-size: var(--q-t-ui); }
+.q-files-toggle { display: flex; gap: 5px; }
+.q-fgroup { margin-bottom: 12px; }
+.q-fgroup:last-child { margin-bottom: 0; }
+.q-fgroup-name {
+  display: flex; align-items: center; gap: 6px;
+  font-size: var(--q-t-label); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--q-faint);
+  padding: 0 6px; margin: 12px 0 3px;
+}
+.q-fgroup:first-child .q-fgroup-name { margin-top: 0; }
+.q-fgroup-name span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-fgroup-name i { font-style: normal; font-variant-numeric: tabular-nums; opacity: 0.8; }
+.q-fgroup-name .q-i { opacity: 0.6; }
+.q-file {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 8px;
+  cursor: default;
+  color: var(--q-muted);
+  transition: background-color var(--q-fast) var(--q-ease), color var(--q-fast) var(--q-ease);
+}
+.q-file .q-i { opacity: 0.5; }
+.q-file:hover { background: var(--q-e2); color: var(--q-fg); }
+.q-file:hover .q-i { opacity: 0.8; }
+.q-file.here {
+  background: var(--q-accent-soft); color: var(--q-fg);
+  box-shadow: inset 0 0 0 1px var(--q-accent-line);
+}
+.q-file.here .q-i { color: var(--q-accent); opacity: 1; }
+.q-file-name {
+  flex: 1; min-width: 0; font-size: var(--q-t-ui); font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-file-meta {
+  font-size: var(--q-t-label); color: var(--q-faint);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+
+/* ---- backlinks ------------------------------------------------------------ */
+
+.q-back { padding: 9px 10px; cursor: default; }
+.q-back:hover { background: var(--q-e2); }
+.q-back-name {
+  font-weight: 600; font-size: var(--q-t-ui);
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+}
+.q-back-count {
+  display: inline-flex; align-items: center;
+  height: 17px; padding: 0 7px;
+  border-radius: var(--q-rp);
+  background: var(--q-e2);
+  color: var(--q-muted);
+  font-size: var(--q-t-label); font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.q-back-path {
+  font-size: var(--q-t-meta); color: var(--q-faint);
+  font-family: var(--q-mono); margin: 3px 0 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-back-hit {
+  font-size: var(--q-t-sm); color: var(--q-muted); line-height: 1.55;
+  padding-left: 9px; border-left: 2px solid var(--q-line);
+  margin-top: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-back:hover .q-back-hit { border-left-color: var(--q-accent-line); }
+
+/* ---- tags ----------------------------------------------------------------- */
+
+.q-tags { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 2px; }
+.q-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--q-h-pill);
+  padding: 0 11px;
+  border-radius: var(--q-rp);
+  background: var(--q-e1);
+  color: var(--q-muted);
+  font-size: var(--q-t-sm);
+  font-weight: 550;
+}
+.q-tag:hover {
+  background: var(--q-accent-soft); color: var(--q-fg);
+  box-shadow: inset 0 0 0 1px var(--q-accent-line);
+}
+.q-tag i {
+  font-style: normal; color: var(--q-faint);
+  font-size: var(--q-t-label); font-variant-numeric: tabular-nums;
+}
+.q-tag:hover i { color: var(--q-accent); }
+
+/* ---- git ------------------------------------------------------------------ */
+
+.q-git-head {
+  display: flex; align-items: center; gap: var(--q-s2);
+  padding: 6px 4px 10px;
+}
+.q-git-b {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--q-mono); font-size: var(--q-t-ui); font-weight: 650;
+  color: var(--q-fg);
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-git-b .q-i { color: var(--q-accent); opacity: 0.9; }
+.q-git-n { margin-left: auto; flex: none; }
+.q-git-acts { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 2px 12px; }
+.q-git-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 3px 8px;
+  cursor: default;
+  transition: background-color var(--q-fast) var(--q-ease);
+}
+.q-git-row:hover { background: var(--q-e2); }
+/* staged and unstaged are the only distinction worth a colour here */
+.q-git-code {
+  flex: none; width: 14px; text-align: center;
+  font-family: var(--q-mono); font-size: var(--q-t-sm); font-weight: 700;
+  color: var(--q-faint);
+}
+.q-git-row.staged .q-git-code { color: var(--q-accent); }
+.q-git-code.deleted { color: var(--q-bad); }
+.q-git-path {
+  flex: 1; min-width: 0; font-size: var(--q-t-ui);
+  direction: rtl; text-align: left;
+  color: var(--q-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-git-row:hover .q-git-path { color: var(--q-fg); }
+.q-git-what {
+  font-size: var(--q-t-label); color: var(--q-faint);
+  white-space: nowrap; text-transform: lowercase;
+}
+
+/* ---- terminal ------------------------------------------------------------- */
+
+/* a flex child will not shrink below its content unless min-height is cleared,
+ * which is what collapses a scrolling pane inside a column to nothing */
+.q-term-body {
+  display: flex; flex-direction: column;
+  padding: 0 !important; height: 100%; min-height: 0; overflow: hidden;
+}
+.q-term-out {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: var(--q-s3) var(--q-s3) var(--q-s2);
+  font-family: var(--q-mono); font-size: var(--q-t-sm); line-height: 1.6;
+}
+.q-term-line { white-space: pre-wrap; word-break: break-word; margin-bottom: 2px; }
+.q-term-line.cmd {
+  display: flex; gap: 7px;
+  color: var(--q-fg); font-weight: 550;
+  margin: 12px 0 4px;
+}
+.q-term-ps { color: var(--q-accent); flex: none; }
+.q-term-line.out { color: var(--q-muted); }
+.q-term-line.err { color: var(--q-bad); }
+.q-term-line.info { color: var(--q-faint); font-style: italic; }
+.q-term-line.busy { display: flex; align-items: center; gap: 8px; color: var(--q-faint); }
+.q-term-input-row {
+  flex: none;
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 8px 8px;
+  padding: 0 10px;
+  height: 30px;
+  border-radius: var(--q-r2);
+  background: var(--q-e1);
+  border: 1px solid transparent;
+  transition: border-color var(--q-fast) var(--q-ease), background-color var(--q-fast) var(--q-ease);
+}
+.q-term-input-row:focus-within {
+  background: var(--q-e2);
+  border-color: var(--q-accent-line);
+}
+.q-term-prompt {
+  flex: none;
+  font-family: var(--q-mono); font-size: var(--q-t-sm); color: var(--q-faint);
+  white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis;
+  direction: rtl; text-align: left;
+}
+.q-term-caret {
+  flex: none;
+  font-family: var(--q-mono); font-size: var(--q-t-sm);
+  color: var(--q-accent);
+}
+.q-term-input {
+  flex: 1; min-width: 0;
+  border: 0; background: transparent; outline: none;
+  color: var(--q-fg); font-family: var(--q-mono); font-size: var(--q-t-sm);
+}
+.q-term-input:disabled { opacity: 0.45; }
+
+/* ---- sessions ------------------------------------------------------------- */
+
+.q-sess-head, .q-stale-head {
+  display: flex; align-items: center; gap: var(--q-s2);
+  min-height: 26px;
+  padding: 4px 2px 10px;
+}
+.q-sess-count {
+  font-size: var(--q-t-meta); color: var(--q-faint);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-sess-head .q-sess-act, .q-stale-head .q-sess-act { margin-left: auto; }
+.q-sess-acts .q-sess-act { margin-left: 0; }
+
+.q-sess-row { padding: 7px 9px 8px; cursor: default; }
+.q-sess-row:hover { background: var(--q-e2); }
+.q-sess-t {
+  font-size: var(--q-t-ui); font-weight: 600; color: var(--q-fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-sess-row.sub .q-sess-t { font-weight: 500; color: var(--q-muted); }
+.q-sess-m {
+  margin-top: 3px;
+  font-size: var(--q-t-meta); color: var(--q-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-sess-acts { display: none; gap: 5px; margin-top: 7px; }
+.q-sess-row:hover .q-sess-acts { display: flex; }
+
+/* ---- doc staleness -------------------------------------------------------- */
+
+.q-stale-row { padding: 7px 9px 8px; cursor: default; }
+.q-stale-row:hover { background: var(--q-e2); }
+.q-stale-n {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: var(--q-t-ui); font-weight: 600; color: var(--q-fg);
+}
+.q-stale-d {
+  font-size: var(--q-t-label); color: var(--q-faint); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-stale-m { margin-top: 3px; font-size: var(--q-t-meta); color: var(--q-muted); }
+.q-stale-s {
+  margin-top: 2px;
+  font-family: var(--q-mono); font-size: var(--q-t-label); color: var(--q-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ---- which-key ------------------------------------------------------------ */
 
@@ -1089,204 +1173,109 @@ body.q-theme .q-wk-title { background: var(--tn-bg); }
 }
 #q-whichkey.q-open { opacity: 1; transform: none; }
 .q-wk-box {
-  width: min(980px, 100%);
-  max-height: 46vh;
+  width: min(1240px, 100%);
+  max-height: 56vh;
   overflow: hidden;
-  border-radius: var(--q-r3);
-  padding: 16px 18px 14px;
-  box-shadow: var(--q-shadow);
-  background: var(--q-bg);
+  padding: 18px 20px 15px;
 }
 /* columns rather than rows: the grid fills downward and wraps into the next
  * column, so it stays a strip at the bottom instead of eating the window */
 .q-wk-cols {
   display: flex; flex-direction: column; flex-wrap: wrap;
   align-content: flex-start;
-  max-height: 36vh;
-  gap: 0 30px;
+  /* the wrap height is what decides how many columns this needs, and a column
+   * that does not fit is silently cut off rather than scrolled. taller columns,
+   * narrower groups: six groups used to need six columns and the sixth was half
+   * a window off the right hand edge. */
+  max-height: 44vh;
+  gap: 0 26px;
+  overflow-x: auto;
 }
-.q-wk-group { min-width: 190px; margin-bottom: 10px; break-inside: avoid; }
+.q-wk-group { min-width: 176px; margin-bottom: 12px; break-inside: avoid; }
 .q-wk-cat {
-  font-size: 10px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--q-accent); margin-bottom: 4px;
+  font-size: var(--q-t-label); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--q-accent); margin-bottom: 6px;
 }
-.q-wk-row { display: flex; align-items: center; gap: 9px; padding: 2px 0; font-size: 12px; }
+.q-wk-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 2px 0; font-size: var(--q-t-ui);
+}
 .q-wk-row kbd {
-  min-width: 20px; text-align: center;
-  background: var(--q-e2); color: var(--q-accent); font-weight: 600;
+  min-width: 20px;
+  background: var(--q-e2); color: var(--q-accent); font-weight: 700;
 }
 .q-wk-row span { color: var(--q-muted); }
 
-/* ---- lualine -------------------------------------------------------------- *
- * a coloured block for the mode, then everything else quiet. the block is the
- * only saturated thing in the chrome, which is what makes it readable at a
- * glance without being loud.
+/* ---- plain text view ------------------------------------------------------ *
+ * a flat monospaced pane over the document area. it is deliberately not styled
+ * like the editor: no prose measure, no rendered anything, a line-number gutter
+ * and a read-only badge, so there is never a moment where you think you are
+ * looking at something you can type into.
  */
 
-#q-status .q-cell.mode {
-  background: var(--q-accent);
-  color: #16161e;
-  font-weight: 700;
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  padding: 3px 9px;
-  border-radius: var(--q-r1);
-  opacity: 1;
-}
-#q-status:hover .q-cell.mode { opacity: 1; }
-#q-status .q-cell.mode:hover { background: color-mix(in srgb, var(--q-accent) 82%, #fff); }
-body.q-theme #q-status .q-git-branch { color: var(--tn-purple); }
-body.q-theme #q-status .q-crumb.file { color: var(--tn-fg-dim); }
-body.q-theme #q-status .q-dirty { background: var(--tn-yellow); opacity: 1; }
-
-
-/* ---- weight --------------------------------------------------------------- *
- * inter at 400 goes thin and grey on a dark ground. it was drawn for white.
- * everything steps up one, headings step up two, and the tracking comes in to
- * match, which is what stops a heavier weight reading as wider.
- */
-
-body.q-font-on {
-  font-weight: 500;
-  -webkit-font-smoothing: antialiased;
-}
-body.q-font-on #write { font-weight: 450; letter-spacing: -0.003em; }
-body.q-font-on #write h1 { font-weight: 750; letter-spacing: -0.028em; }
-body.q-font-on #write h2 { font-weight: 700; letter-spacing: -0.022em; }
-body.q-font-on #write h3,
-body.q-font-on #write h4 { font-weight: 650; letter-spacing: -0.016em; }
-body.q-font-on #write strong { font-weight: 700; }
-
-.q-pal-title, .q-file-name, .q-pick-name, .q-back-name, .q-pd-title { font-weight: 600; }
-.q-btn, .q-model { font-weight: 550; }
-.q-pal-input { font-weight: 550; letter-spacing: -0.01em; }
-.q-float-title, .q-wk-cat, .q-pal-cat, .q-fgroup-name, .q-fontsec { font-weight: 700; }
-#q-status { font-weight: 500; }
-#q-status .q-crumb.file { font-weight: 600; }
-
-/* ---- floats stay opaque --------------------------------------------------- *
- * this has to be last. the float rules further up use the `background`
- * shorthand, which beats any `background-color` declared before it no matter
- * how specific, so the glass pass kept losing to the border pass, and the
- * palette read as a pane of the document rather than a thing on top of it.
- *
- * a popover over a translucent window has to be solid. two levels of see-through
- * stacked is unreadable, and it is the one place where matching the window's
- * material actively hurts.
- */
-
-.q-pal-box, .q-sheet, .q-wk-box { background: #1e1e1e; }
-body.q-theme .q-pal-box,
-body.q-theme .q-sheet,
-body.q-theme .q-wk-box { background: var(--gh-bg); }
-
-/* and the scrim behind them goes darker, so the float has an edge to sit on */
-#q-palette, #q-modal { background: rgba(0, 0, 0, 0.46); }
-
-/* ---- the guard bar --------------------------------------------------------- *
- * a bar, and deliberately not a dialog. this app raises native panels of its
- * own, and two modals at once is a deadlock: the panel blocks the app and the
- * app blocks whatever was talking to it. so the loudest thing the file guard
- * ever does is sit under the titlebar and wait.
- *
- * it hangs from the top rather than dropping into the layout, because `content`
- * is absolutely positioned by the host and anything that changes its box makes
- * the whole document reflow. */
-
-#q-guardbar {
+#q-view {
   position: fixed;
-  top: 0; left: 50%;
-  transform: translate(-50%, -130%);
-  display: flex; align-items: center; gap: 10px;
-  max-width: min(760px, 82vw);
-  padding: 8px 10px 8px 14px;
+  display: none;
+  flex-direction: column;
   background: var(--q-bg);
-  border: 1px solid var(--q-line);
-  border-top: none;
-  border-radius: 0 0 var(--q-r3) var(--q-r3);
-  box-shadow: var(--q-shadow);
-  z-index: 58;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--q-med) var(--q-ease), transform var(--q-med) var(--q-ease);
+  z-index: 10;
+  overflow: hidden;
 }
-#q-guardbar.q-open { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
-
-#q-guardbar .q-guardbar-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: #d9a441;
+#q-view.q-open { display: flex; }
+.q-view-head {
   flex: none;
+  display: flex; align-items: center; gap: var(--q-s2);
+  height: 38px;
+  padding: 0 var(--q-s3);
+  border-bottom: 1px solid var(--q-line);
+  font-size: var(--q-t-ui);
 }
-#q-guardbar[data-kind="conflict"] .q-guardbar-dot { background: #e05252; }
-#q-guardbar .q-guardbar-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#q-guardbar .q-guardbar-acts { display: flex; gap: 4px; flex: none; }
-#q-guardbar .q-guardbar-btn {
-  font: inherit; font-weight: 550;
-  padding: 4px 10px;
-  border: none; border-radius: var(--q-r1);
+.q-view-icon { display: flex; color: var(--q-faint); }
+.q-view-name {
+  font-family: var(--q-mono); font-size: var(--q-t-ui); font-weight: 650;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-view-meta { color: var(--q-faint); font-size: var(--q-t-meta); white-space: nowrap; }
+.q-view-ro {
+  flex: none;
+  white-space: nowrap;
+  display: inline-flex; align-items: center;
+  height: 18px; padding: 0 8px;
+  border-radius: var(--q-rp);
+  font-size: 9.5px;
+  text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;
+  color: var(--q-muted); background: var(--q-e2);
+}
+.q-view-acts { margin-left: auto; display: flex; gap: 4px; }
+.q-view-note {
+  flex: none; padding: 7px var(--q-s3);
+  font-size: var(--q-t-sm); color: var(--q-muted);
   background: var(--q-e1);
-  color: var(--q-fg);
-  cursor: default;
-  transition: background-color var(--q-fast) ease, transform 0.08s ease;
 }
-#q-guardbar .q-guardbar-btn:hover { background: var(--q-e2); }
-#q-guardbar .q-guardbar-btn:active { transform: scale(0.97); }
-#q-guardbar .q-guardbar-x {
-  flex: none; opacity: 0.4; cursor: default; padding: 0 4px; font-size: 15px;
+.q-view-body {
+  flex: 1; min-height: 0; overflow: auto;
+  padding: var(--q-s3) 0 40px;
+  font-family: var(--q-mono); font-size: var(--q-t-ui); line-height: 1.6;
+  tab-size: 4; -moz-tab-size: 4;
 }
-#q-guardbar .q-guardbar-x:hover { opacity: 0.9; }
-
-.q-warn { color: #d9a441; }
-
-/* ---- diffs ----------------------------------------------------------------- */
-
-.q-diff {
-  font-family: var(--q-mono);
-  font-size: 11.5px;
-  line-height: 1.55;
-  max-height: 58vh;
-  overflow: auto;
-  border: 1px solid var(--q-line);
-  border-radius: var(--q-r2);
-  padding: 8px 0;
-  background: color-mix(in srgb, var(--q-fg) 3%, transparent);
+.q-view-row { display: flex; align-items: flex-start; }
+.q-view-row:hover { background: var(--q-e1); }
+.q-view-n {
+  flex: none; text-align: right; padding: 0 var(--q-s3) 0 var(--q-s2);
+  color: var(--q-faint); font-variant-numeric: tabular-nums;
+  user-select: none; -webkit-user-select: none;
 }
-.q-diff-l { padding: 0 12px; white-space: pre; }
-.q-diff-l.f { opacity: 0.45; }
-.q-diff-l.h { color: var(--q-accent); opacity: 0.9; }
-.q-diff-l.d { background: color-mix(in srgb, #e05252 16%, transparent); }
-.q-diff-l.a { background: color-mix(in srgb, #4fa96a 16%, transparent); }
-
-/* ---- stickies -------------------------------------------------------------- *
- * the same app in a 380px window, with everything that makes it an editor taken
- * off: no status bar, no rail, no sidebar, no footer. the window level and the
- * frame are set from the dylib, because NSWindow is not reachable from here. */
-
-body.q-sticky #q-status,
-body.q-sticky #q-panel,
-body.q-sticky #typora-sidebar,
-body.q-sticky footer,
-body.q-sticky #footer-word-count,
-body.q-sticky .info-panel-tab-border { display: none !important; }
-
-body.q-sticky #write {
-  padding: 10px 16px 24px;
-  max-width: none;
-  font-size: 14px;
-  line-height: 1.55;
+.q-view-l {
+  flex: 1; min-width: 0; padding-right: var(--q-s4);
+  white-space: pre; overflow: visible;
+  color: var(--q-muted);
 }
-body.q-sticky content { top: 22px !important; bottom: 0 !important; left: 0 !important; }
-/* the frontmatter is the note's provenance, not its content. it stays readable
- * and stops competing with the two lines you actually wrote. */
-body.q-sticky #write .md-meta-block,
-body.q-sticky #write pre.md-meta-block {
-  font-size: 10px;
-  opacity: 0.34;
-  line-height: 1.35;
-  margin-bottom: 8px;
-}
+.q-view-body.wrap .q-view-l { white-space: pre-wrap; word-break: break-word; }
+.q-view-body.wrap { overflow-x: hidden; }
+/* the pane is code: it keeps a mono face whatever the ui typeface is set to */
+body.q-font-on .q-view-body { font-family: var(--q-mono); }
 
-/* ---- runnable code blocks --------------------------------------------------- *
+/* ---- runnable code blocks -------------------------------------------------- *
  * a layer of buttons over the fences rather than anything inside them. a <pre>
  * in this editor is either contenteditable=false or a live CodeMirror, and a
  * control put inside either one eventually gets handed to the markdown writer to
@@ -1304,127 +1293,330 @@ body.q-sticky #write pre.md-meta-block {
 .q-run-btn {
   position: fixed;
   pointer-events: auto;
-  display: flex; align-items: center; gap: 4px;
-  width: 62px; height: 21px;
-  padding: 0 8px;
-  border: 1px solid var(--q-line);
-  border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  height: var(--q-h-pill);
+  padding: 0 10px;
+  border-radius: var(--q-rp);
   background: var(--q-e2);
+  box-shadow: inset 0 0 0 1px var(--q-line);
   color: var(--q-muted);
-  font: inherit; font-size: 10.5px; font-weight: 600;
+  font-size: var(--q-t-meta); font-weight: 650;
   letter-spacing: 0.02em;
-  cursor: default;
-  opacity: 0.32;
-  transition: opacity var(--q-fast) var(--q-ease), background var(--q-fast) var(--q-ease),
-              color var(--q-fast) var(--q-ease);
+  opacity: 0.34;
+  transition: opacity var(--q-fast) var(--q-ease), background-color var(--q-fast) var(--q-ease),
+              color var(--q-fast) var(--q-ease), box-shadow var(--q-fast) var(--q-ease),
+              transform 0.07s var(--q-ease);
 }
 /* quiet until you go near it. a run button that shouts is a run button you press
  * by accident, and this one runs a shell command. */
-#q-run-layer:hover .q-run-btn { opacity: 0.62; }
+#q-run-layer:hover .q-run-btn { opacity: 0.66; }
 .q-run-btn:hover {
   opacity: 1;
   background: var(--q-accent-soft);
   color: var(--q-fg);
-  border-color: color-mix(in srgb, var(--q-accent) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--q-accent-line);
 }
-.q-run-btn svg { flex: none; opacity: 0.8; }
+.q-run-btn:active { transform: scale(0.95); }
+.q-run-btn .q-i { flex: none; opacity: 0.85; }
+.q-run-btn:hover .q-i { color: var(--q-accent); opacity: 1; }
 
 /* the confirm. the command in monospace is the whole point of the dialog: the
  * question is not "are you sure", it is "did you read this". */
 .q-runask-cmd {
-  margin: 0 0 10px;
-  padding: 10px 12px;
+  margin: 0 0 12px;
+  padding: 11px 13px;
   max-height: 40vh; overflow: auto;
   background: var(--q-e1);
-  border: 1px solid var(--q-line);
   border-radius: var(--q-r2);
-  font-family: var(--q-mono); font-size: 12px; line-height: 1.5;
+  box-shadow: inset 0 0 0 1px var(--q-line);
+  color: var(--q-fg);
+  font-family: var(--q-mono); font-size: var(--q-t-ui); line-height: 1.55;
   white-space: pre-wrap; word-break: break-word;
 }
-.q-runask-why { margin-bottom: 8px; font-size: 12.5px; color: #e0724f; }
-.q-runask-where { font-size: 11.5px; color: var(--q-faint); line-height: 1.5; }
-.q-runask-where code { font-family: var(--q-mono); font-size: 11px; }
+.q-runask-why {
+  display: flex; align-items: center; gap: 7px;
+  margin-bottom: 10px; font-size: var(--q-t-ui); color: var(--q-warn);
+}
+.q-runask-where { font-size: var(--q-t-sm); color: var(--q-faint); line-height: 1.6; }
+.q-runask-where code {
+  font-family: var(--q-mono); font-size: var(--q-t-sm); color: var(--q-muted);
+}
 
 /* the folded-in output. it is a real fence in the file, so it has to earn its
  * difference from a code block with css alone. flat, dimmer, a left edge, no
- * line numbers: it reads as a receipt rather than as something you wrote. */
-#write .md-fences[lang="quire-out"] {
-  border: none;
-  border-left: 2px solid color-mix(in srgb, var(--q-accent) 45%, transparent);
-  border-radius: 0;
-  background: var(--q-e1);
-  font-size: 11.5px;
-  opacity: 0.82;
-  padding-left: 12px;
+ * line numbers, and its own word in the corner: it reads as a receipt rather
+ * than as something you wrote. */
+#write .md-fences[lang="quire-out"],
+body.q-glass #write .md-fences[lang="quire-out"] {
+  position: relative;
+  border: 0;
+  border-left: 2px solid var(--q-accent-line);
+  border-radius: 0 var(--q-r2) var(--q-r2) 0;
+  /* flatter than the block above it. a code fence is something you wrote and
+   * gets a fill; a result is something that happened and gets a rule. */
+  background-color: rgba(255, 255, 255, 0.018) !important;
+  font-size: var(--q-t-sm);
+  opacity: 0.86;
+  padding-left: 14px;
+}
+#write .md-fences[lang="quire-out"]::after {
+  content: "output";
+  position: absolute; top: 5px; right: 10px;
+  font-family: var(--q-ui);
+  font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--q-faint);
+  opacity: 0.7;
+  pointer-events: none;
 }
 #write .md-fences[lang="quire-out"] .CodeMirror-gutters,
 #write .md-fences[lang="quire-out"] .md-fences-adv-panel { display: none; }
 
-/* ---- sessions --------------------------------------------------------------- */
+/* ---- the frontmatter card -------------------------------------------------- *
+ * every sticky note carries yaml: which claude code session made it, that
+ * session's cwd, the window title, when. that is provenance, not content, and
+ * eight lines of raw yaml at the top of a two-line note is the ugliest thing in
+ * the app.
+ *
+ * so the block is drawn as a card instead. the raw <pre> is still there and
+ * still the only thing that gets saved, it just goes transparent and gives up
+ * its height to the card, and the moment the caret lands in it the card steps
+ * out of the way and the yaml comes back. nothing is inserted into #write:
+ * the card is a fixed overlay over the block's own rectangle, the same trick the
+ * run buttons use, for the same reason.
+ */
 
-.q-sess-head, .q-stale-head {
-  display: flex; align-items: baseline; gap: var(--q-s2);
-  padding: 0 6px 8px;
+#q-fm-layer {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 9;
 }
-.q-sess-count { font-size: 10.5px; color: var(--q-faint); }
-.q-sess-act {
-  margin-left: auto;
-  padding: 2px 8px; border-radius: 10px; font-size: 10.5px; cursor: default;
-  background: var(--q-e1); color: var(--q-muted);
+.q-fm-card {
+  position: fixed;
+  box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 13px 11px;
+  border-radius: var(--q-r2);
+  background: var(--q-e1);
+  box-shadow: inset 0 0 0 1px var(--q-line);
+  overflow: hidden;
 }
-.q-sess-acts .q-sess-act { margin-left: 0; }
-.q-sess-act:hover { background: var(--q-e2); color: var(--q-fg); }
+.q-fm-head {
+  display: flex; align-items: center; gap: 7px;
+  white-space: nowrap;
+  font-size: var(--q-t-label); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--q-faint);
+}
+.q-fm-head .q-i { color: var(--q-accent); opacity: 0.85; }
+.q-fm-when {
+  margin-left: auto; text-transform: none; letter-spacing: 0.01em;
+  font-weight: 550; font-size: var(--q-t-meta);
+  font-variant-numeric: tabular-nums;
+}
+.q-fm-rows { display: flex; flex-wrap: wrap; gap: 5px 16px; }
+.q-fm-row { display: flex; align-items: baseline; gap: 7px; min-width: 0; max-width: 100%; }
+.q-fm-k {
+  flex: none;
+  font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--q-faint);
+}
+.q-fm-v {
+  min-width: 0;
+  font-family: var(--q-mono); font-size: var(--q-t-sm);
+  color: var(--q-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-fm-v.mute { color: var(--q-faint); font-style: italic; }
 
-.q-sess-row {
-  padding: 7px 8px 8px;
+/* the raw block. base.css paints it #ccc, which is a light grey slab across the
+ * top of a dark document, so that goes whether the card is drawn or not. */
+#write pre.md-meta-block {
+  background: var(--q-e1) !important;
+  border-radius: var(--q-r2);
+  padding: 10px 13px;
+  color: var(--q-muted);
+  font-family: var(--q-mono);
+  font-size: var(--q-t-sm);
+  line-height: 1.6;
+  caret-color: var(--q-accent);
+}
+body.q-fm-on #write pre.md-meta-block {
+  color: transparent !important;
+  background: transparent !important;
+  height: var(--q-fm-h, auto);
+  overflow: hidden;
+  /* the theme puts a dashed rule under the meta block. the block still runs the
+   * full width of the text column while the card is capped at 620, so that rule
+   * came out of the right hand side of the card as a dashed line to nowhere. */
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0;
+}
+body.q-fm-edit #q-fm-layer { display: none; }
+/* the caret is in it: the card is hidden from javascript and the yaml comes back */
+body.q-fm-on.q-fm-edit #write pre.md-meta-block {
+  color: var(--q-muted) !important;
+  background: var(--q-e1) !important;
+  height: auto;
+}
+
+/* ---- the guard bar --------------------------------------------------------- *
+ * a bar, and deliberately not a dialog. this app raises native panels of its
+ * own, and two modals at once is a deadlock: the panel blocks the app and the
+ * app blocks whatever was talking to it. so the loudest thing the file guard
+ * ever does is sit under the titlebar and wait.
+ *
+ * it hangs from the top rather than dropping into the layout, because `content`
+ * is absolutely positioned by the host and anything that changes its box makes
+ * the whole document reflow. */
+
+#q-guardbar {
+  position: fixed;
+  top: 0; left: 50%;
+  transform: translate(-50%, -130%);
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(760px, 82vw);
+  padding: 8px 8px 8px 14px;
+  background: var(--q-float-bg);
+  border: 1px solid var(--q-line);
+  border-top: none;
+  border-radius: 0 0 var(--q-r3) var(--q-r3);
+  box-shadow: var(--q-shadow-sm);
+  font-size: var(--q-t-ui);
+  z-index: 58;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--q-med) var(--q-ease), transform var(--q-med) var(--q-ease);
+}
+#q-guardbar.q-open { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+#q-guardbar .q-guardbar-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--q-warn);
+  flex: none;
+}
+#q-guardbar[data-kind="conflict"] .q-guardbar-dot { background: var(--q-bad); }
+#q-guardbar .q-guardbar-msg {
+  color: var(--q-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#q-guardbar .q-guardbar-msg b { color: var(--q-fg); font-weight: 650; }
+#q-guardbar .q-guardbar-acts { display: flex; gap: 4px; flex: none; }
+#q-guardbar .q-guardbar-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; padding: 0 11px;
   border-radius: var(--q-r1);
-  cursor: default;
+  background: var(--q-e1);
+  color: var(--q-muted);
+  font-size: var(--q-t-ui); font-weight: 600;
 }
-.q-sess-row:hover { background: var(--q-e1); }
-.q-sess-t {
-  font-size: 12.5px; font-weight: 550;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.q-sess-row.sub .q-sess-t { font-weight: 400; opacity: 0.72; }
-.q-sess-m {
-  margin-top: 2px;
-  font-size: 10.5px; color: var(--q-faint);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.q-sess-acts {
-  display: none; gap: 5px; margin-top: 6px;
-}
-.q-sess-row:hover .q-sess-acts { display: flex; }
+#q-guardbar .q-guardbar-btn:hover { background: var(--q-e2); color: var(--q-fg); }
+#q-guardbar .q-guardbar-btn.primary { background: var(--q-accent); color: var(--q-on-accent); }
+#q-guardbar .q-guardbar-btn.primary:hover { background: color-mix(in srgb, var(--q-accent) 88%, #fff); }
+#q-guardbar .q-guardbar-x { flex: none; }
 
-/* ---- doc staleness ---------------------------------------------------------- */
+/* ---- diffs ----------------------------------------------------------------- */
 
-.q-side-label {
-  padding: 12px 6px 5px;
-  font-size: 10px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.07em; opacity: 0.4;
+.q-diff {
+  font-family: var(--q-mono);
+  font-size: var(--q-t-sm);
+  line-height: 1.6;
+  max-height: 58vh;
+  overflow: auto;
+  border-radius: var(--q-r2);
+  box-shadow: inset 0 0 0 1px var(--q-line);
+  padding: 10px 0;
+  background: var(--q-e0);
+  color: var(--q-muted);
 }
-.q-side-label:first-child { padding-top: 2px; }
+.q-diff-l { padding: 0 13px; white-space: pre; }
+.q-diff-l.f { color: var(--q-faint); }
+.q-diff-l.h { color: var(--q-accent); }
+.q-diff-l.d { background: color-mix(in srgb, var(--q-bad) 16%, transparent); }
+.q-diff-l.a { background: color-mix(in srgb, var(--q-ok) 16%, transparent); }
+.q-diff .add { color: var(--q-ok); }
+.q-diff .del { color: var(--q-bad); }
+.q-diff .hunk { color: var(--q-faint); }
 
-.q-stale-row {
-  padding: 6px 8px 7px;
-  border-radius: var(--q-r1);
-  cursor: default;
+/* ---- font picker ----------------------------------------------------------- */
+
+.q-fontsec {
+  font-size: var(--q-t-meta); font-weight: 700;
+  text-transform: lowercase; letter-spacing: 0.06em;
+  color: var(--q-faint); margin: 16px 0 7px;
 }
-.q-stale-row:hover { background: var(--q-e1); }
-.q-stale-n {
-  display: flex; align-items: baseline; gap: 7px;
-  font-size: 12.5px; font-weight: 550;
+.q-fontsec:first-child { margin-top: 0; }
+.q-fontpick .q-modellist { display: flex; flex-direction: row; flex-wrap: wrap; gap: 5px; }
+.q-fontpick .q-model { font-size: 14px; height: 32px; padding: 0 14px; }
+.q-fontnote { margin-top: 10px; font-size: var(--q-t-ui); min-height: 18px; color: var(--q-muted); }
+.q-fontnote.ok { color: var(--q-ok); }
+.q-fontnote.bad { color: var(--q-bad); }
+
+/* ---- prose typography ------------------------------------------------------ *
+ * off by default. widens the measure, loosens the leading and hangs the
+ * headings, which is the layout most themes never get round to.
+ */
+
+body.q-prose #write {
+  max-width: 46em;
+  line-height: 1.78;
+  font-size: 16.5px;
 }
-.q-stale-d {
-  font-size: 10px; color: var(--q-faint); font-weight: 400;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+body.q-prose #write > h1,
+body.q-prose #write > h2,
+body.q-prose #write > h3 { letter-spacing: -0.012em; line-height: 1.25; }
+body.q-prose #write > h1 { margin-top: 2.2em; }
+body.q-prose #write > h2 { margin-top: 2em; }
+body.q-prose #write > p { margin: 0 0 1.15em; }
+body.q-prose #write > blockquote { border-left-width: 2px; opacity: 0.86; font-style: italic; }
+body.q-prose #write > pre, body.q-prose #write .md-fences { font-size: 13px; line-height: 1.55; }
+
+/* ---- zen ------------------------------------------------------------------- */
+
+body.q-zen #typora-sidebar,
+body.q-zen #q-status,
+body.q-zen header { display: none !important; }
+body.q-zen content { top: 0; bottom: 0; right: 0; }
+body.q-zen #write { max-width: 40em; }
+
+/* ---- stickies -------------------------------------------------------------- *
+ * the same app in a 380px window, with everything that makes it an editor taken
+ * off: no status bar, no rail, no sidebar, no footer. the window level and the
+ * frame are set from the dylib, because NSWindow is not reachable from here. */
+
+body.q-sticky #q-status,
+body.q-sticky #q-panel,
+body.q-sticky #typora-sidebar,
+body.q-sticky footer,
+body.q-sticky #footer-word-count,
+body.q-sticky .info-panel-tab-border { display: none !important; }
+
+body.q-sticky #write {
+  padding: 10px 14px 24px;
+  max-width: none;
+  font-size: 14px;
+  line-height: 1.55;
 }
-.q-stale-m { margin-top: 2px; font-size: 10.5px; color: var(--q-muted); }
-.q-stale-s {
-  margin-top: 1px;
-  font-family: var(--q-mono); font-size: 10px; color: var(--q-faint);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+/* right, and not only left. the sidebar preference is shared with the main
+ * window, so a note opened while the sidebar was open inherited
+ * `content { right: 300px }` from body.q-panel-open. on a 380px window that
+ * leaves an 80px column: the whole note, card and all, wrapped one word per
+ * line and it looked like the card was broken. */
+body.q-sticky content {
+  top: 22px !important; bottom: 0 !important;
+  left: 0 !important; right: 0 !important;
 }
+/* on a note the card is the whole point, so it goes one step quieter than in a
+ * document: no fill, just the rule under it. */
+body.q-sticky .q-fm-card {
+  background: transparent;
+  box-shadow: none;
+  border-bottom: 1px solid var(--q-line);
+  border-radius: 0;
+  padding: 2px 2px 9px;
+}
+body.q-sticky .q-fm-rows { gap: 3px 14px; }
 
 /* a sticky is a note, not a workbench: no run buttons on one. and the read-only
  * pane covers the document at z-index 10, so the fences behind it still have
@@ -1432,3 +1624,218 @@ body.q-sticky #write pre.md-meta-block {
 body.q-sticky #q-run-layer,
 body.q-view-open #q-run-layer,
 body.q-zen #q-run-layer { display: none; }
+body.q-view-open #q-fm-layer { display: none; }
+
+/* ---- glass ----------------------------------------------------------------- *
+ * the window is already non-opaque and blurred by the time this runs. that is
+ * the native half's job. what is left is to stop every layer of the host's own
+ * chrome painting over it, and to put the tint back exactly once, on the body.
+ *
+ * !important is unavoidable here: themes set these backgrounds on the same
+ * elements, and the user's theme is loaded from a <link> we do not control.
+ */
+
+body.q-glass {
+  background-color: rgba(var(--q-glass-tint, 30, 30, 30), var(--q-glass-alpha, 0.65)) !important;
+}
+html:has(body.q-glass) { background: transparent !important; }
+
+body.q-glass content,
+body.q-glass #write,
+body.q-glass header,
+body.q-glass #top-titlebar,
+body.q-glass footer,
+body.q-glass .ty-footer,
+body.q-glass #typora-source,
+body.q-glass .CodeMirror,
+body.q-glass .CodeMirror-gutters {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* the host's sidebar and our own card sit a shade deeper so the split still
+ * reads. ours is a card in a gutter, so it takes the fill and the panel around
+ * it stays clear. */
+body.q-glass #typora-sidebar { background-color: rgba(0, 0, 0, 0.16) !important; }
+body.q-glass #q-panel { background-color: transparent !important; }
+body.q-glass .q-side-main {
+  background-color: rgba(0, 0, 0, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.07);
+}
+body.q-glass #q-status { background: transparent; border-top: 0; }
+/* the text pane is the one thing here that must NOT be transparent. it covers
+ * the document rather than replacing it, so a see-through pane shows the
+ * markdown underneath it: 37 numbered lines of build.sh with an h1 reading
+ * "Quire" straight through the middle of them. it was written transparent to
+ * match the document and shipped that way for two passes, because it had only
+ * ever been checked at the dom level. it takes the window's own tint instead,
+ * nearly opaque, so it reads as a pane on top of the glass. */
+body.q-glass #q-view {
+  /* opaque, not 97%. three percent of a translucent window is still enough of
+   * the document underneath to read, and text ghosting through text is the one
+   * thing a reading pane cannot do. */
+  background-color: rgb(var(--q-glass-tint, 28, 28, 28)) !important;
+}
+body.q-glass .q-view-note { background: rgba(255, 255, 255, 0.05); }
+
+/* code blocks need a floor or they vanish into the desktop, but the floor goes
+ * on the wrapper only. codemirror paints four nested elements of its own, and
+ * every one of them stacking its own tint is what turns a code block into an
+ * opaque slab. */
+body.q-glass #write .md-fences,
+body.q-glass #write > pre,
+body.q-glass #write code,
+body.q-glass #write table {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+body.q-glass #write .md-fences { border-radius: var(--q-r2); }
+body.q-glass .CodeMirror,
+body.q-glass .CodeMirror-scroll,
+body.q-glass .CodeMirror-sizer,
+body.q-glass .CodeMirror-lines,
+body.q-glass .CodeMirror-gutters,
+body.q-glass .CodeMirror-gutter,
+body.q-glass .CodeMirror-activeline-background,
+body.q-glass .md-fences .CodeMirror-code,
+body.q-glass #write .md-fences-adv-panel,
+body.q-glass #write .md-diagram-panel {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* ---- the document ---------------------------------------------------------- *
+ * prose stays one colour. only the things that are not prose, code and links and
+ * marks, get any at all, and they get the muted ansi ones.
+ */
+
+body.q-theme #write { color: var(--gh-fg); }
+body.q-theme #write h1, body.q-theme #write h2, body.q-theme #write h3,
+body.q-theme #write h4, body.q-theme #write h5, body.q-theme #write h6 {
+  color: var(--gh-fg);
+  letter-spacing: -0.018em;
+}
+body.q-theme #write a { color: var(--gh-blue); }
+body.q-theme #write code { color: var(--gh-green); background: rgba(230,230,230,0.06) !important; }
+body.q-theme #write blockquote { border-left-color: var(--gh-line); color: var(--gh-dim); }
+body.q-theme #write mark { background: rgba(179,164,124,0.26); color: var(--gh-yellow); }
+body.q-theme #write hr, body.q-theme #write table td,
+body.q-theme #write table th { border-color: var(--gh-line); }
+body.q-theme .md-task-list-item > input { accent-color: var(--gh-green); }
+body.q-theme #q-status .q-git-branch { color: var(--gh-purple); }
+body.q-theme #q-status .q-crumb.file { color: var(--gh-dim); }
+body.q-theme #q-status .q-dirty { background: var(--gh-yellow); }
+/* a rounded corner on a code block is the one place the document itself gets to
+ * look like the chrome around it */
+body.q-theme #write .md-fences,
+body.q-theme #write > pre { border-radius: var(--q-r2); }
+body.q-theme #write table { border-radius: var(--q-r1); overflow: hidden; }
+
+/* ---- typeface -------------------------------------------------------------- *
+ * Inter ships in the bundle as the stand-in for gg sans, which discord streams
+ * from its own cdn and does not license out. if gg sans is ever installed the
+ * stack picks it up first and this is never used.
+ */
+
+@font-face {
+  font-family: "Victor Mono";
+  src: url("./VictorMono.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+/* the cursive italic is the whole point of this face. markdown emphasis and
+ * code comments get it, which is what operator mono is bought for */
+@font-face {
+  font-family: "Victor Mono";
+  src: url("./VictorMono-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+body.q-font-on,
+body.q-font-on #q-status,
+body.q-font-on #q-panel,
+body.q-font-on #q-palette,
+body.q-font-on #q-modal,
+body.q-font-on #q-toast,
+body.q-font-on #q-whichkey,
+body.q-font-on #q-guardbar,
+body.q-font-on #typora-sidebar,
+body.q-font-on header,
+body.q-font-on #write {
+  font-family: var(--q-font, -apple-system, sans-serif);
+}
+/* code keeps a mono face whatever the ui is set to, unless the ui face is
+ * already one, in which case switching would break the very look that was
+ * chosen */
+body.q-font-on:not(.q-font-mono) #write code,
+body.q-font-on:not(.q-font-mono) #write pre,
+body.q-font-on:not(.q-font-mono) .CodeMirror,
+body.q-font-on:not(.q-font-mono) .q-pre,
+body.q-font-on:not(.q-font-mono) .q-term-out,
+body.q-font-on:not(.q-font-mono) .q-term-input { font-family: var(--q-mono); }
+body.q-font-mono { letter-spacing: -0.012em; }
+body.q-font-mono #write em,
+body.q-font-mono #write .md-comment { font-style: italic; }
+
+/* ---- weight ---------------------------------------------------------------- *
+ * inter at 400 goes thin and grey on a dark ground. it was drawn for white.
+ * everything steps up one, headings step up two, and the tracking comes in to
+ * match, which is what stops a heavier weight reading as wider.
+ */
+
+body.q-font-on {
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+}
+body.q-font-on #write { font-weight: 450; letter-spacing: -0.003em; }
+body.q-font-on #write h1 { font-weight: 750; letter-spacing: -0.028em; }
+body.q-font-on #write h2 { font-weight: 700; letter-spacing: -0.022em; }
+body.q-font-on #write h3,
+body.q-font-on #write h4 { font-weight: 650; letter-spacing: -0.016em; }
+body.q-font-on #write strong { font-weight: 700; }
+
+/* ---- motion ---------------------------------------------------------------- *
+ * short and eased, and every one of them opts out under reduced motion. the
+ * palette and the panel are the two things that appear often enough that a hard
+ * cut is jarring.
+ */
+
+@keyframes q-rise { from { opacity: 0; transform: translate3d(0, 8px, 0) scale(0.985); }
+                    to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }
+@keyframes q-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes q-slide-in { from { opacity: 0; transform: translate3d(12px, 0, 0); }
+                        to   { opacity: 1; transform: translate3d(0, 0, 0); } }
+
+/* the compositor needs to be told in advance, or the first frame of every
+ * animation is spent creating the layer */
+.q-pal-box, .q-sheet, #q-panel { will-change: transform, opacity; }
+#q-panel, .q-pal-list, .q-panel-body { contain: layout paint; }
+
+#q-palette.q-open, #q-modal.q-open { animation: q-fade 0.1s linear both; }
+#q-palette.q-open .q-pal-box, #q-modal.q-open .q-sheet {
+  animation: q-rise 0.16s var(--q-ease) both;
+}
+#q-panel.q-open { animation: q-slide-in 0.16s var(--q-ease) both; }
+.q-pal-item, .q-model, .q-back, .q-file, .q-git-row, .q-sess-row, .q-stale-row,
+.q-pick-item, .q-mention, .q-crumb {
+  transition: background-color var(--q-fast) var(--q-ease), color var(--q-fast) var(--q-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #q-palette.q-open, #q-modal.q-open, #q-panel.q-open,
+  #q-palette.q-open .q-pal-box, #q-modal.q-open .q-sheet { animation: none; }
+  .q-pal-item, .q-rail-btn, .q-model, .q-tag, .q-back, .q-btn, .q-pill,
+  .q-files-chip, .q-git-act, .q-sess-act, .q-view-act, .q-run-btn, .q-iconbtn,
+  #q-status .q-cell { transition: none; }
+  .q-btn:active, .q-pill:active, .q-iconbtn:active, .q-run-btn:active,
+  .q-files-chip:active, .q-git-act:active, .q-sess-act:active,
+  .q-view-act:active { transform: none; }
+}

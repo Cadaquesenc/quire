@@ -91,10 +91,12 @@
   };
 
   Q.ui.registerPanel("files", "Files", function (body) {
-    body.innerHTML = '<div class="q-panel-loading">scanning…</div>';
+    body.innerHTML = Q.ui.loading("scanning the folder…");
     const root = Q.doc.root();
     if (!root) {
-      body.innerHTML = '<div class="q-panel-empty">open a folder first.</div>';
+      body.innerHTML = Q.ui.empty("files", "no folder open",
+        "open one from the sidebar, or point quire at a default with " +
+        "<b>Set the default folder</b> in the palette.");
       return;
     }
 
@@ -120,14 +122,18 @@
           ["text", "text", rows.filter((f) => f.md || f.text).length],
           ["all", "all", rows.length],
         ];
+        // the count rides inside the chip rather than beside it, so the three
+        // of them are one control instead of three labels and three numbers
         toggle.innerHTML = chips.map(([m, label, n]) =>
           '<span class="q-files-chip' + (state.mode === m ? " on" : "") + '" data-mode="' + m + '">' +
-          label + " " + n + "</span>").join("");
+          label + "<i>" + n + "</i></span>").join("");
         toggle.querySelectorAll(".q-files-chip").forEach((c) =>
           c.addEventListener("click", () => { state.mode = c.dataset.mode; draw(); }));
 
         if (!rowsShown.length) {
-          list.innerHTML = '<div class="q-panel-empty">nothing matches</div>';
+          list.innerHTML = Q.ui.empty("search", "nothing matches",
+            q ? "no file under this folder has <b>" + Q.esc(state.filter) + "</b> in its path."
+              : "this folder has no files of that kind.");
           return;
         }
 

@@ -368,6 +368,7 @@
     if (!els.length) { if (layer) layer.innerHTML = ""; return; }
     const wrap = ensureLayer();
     const vh = window.innerHeight;
+    const vw = window.innerWidth;
     const html = [];
     const keep = [];
     els.forEach((el) => {
@@ -375,10 +376,13 @@
       if (r.bottom < 0 || r.top > vh || r.width < 40) return;
       keep.push(el);
       const again = hasResult(el);
+      // pinned by its right edge, not its left. the label is either "run" or
+      // "re-run" and the pill is sized by its content, so anchoring the left
+      // edge at a fixed offset put the two of them in different places.
       html.push('<button class="q-run-btn" data-i="' + (keep.length - 1) + '" tabindex="-1"' +
-        ' style="top:' + Math.round(r.top + 6) + "px;left:" + Math.round(r.right - 74) + 'px"' +
+        ' style="top:' + Math.round(r.top + 7) + "px;right:" + Math.round(vw - r.right + 8) + 'px"' +
         ' title="' + (again ? "run it again and replace the output below" : "run this in the terminal") +
-        '">' + Q.icon("play", 11) + "<span>" + (again ? "re-run" : "run") + "</span></button>");
+        '">' + Q.icon("play", 10) + "<span>" + (again ? "re-run" : "run") + "</span></button>");
     });
     wrap.innerHTML = html.join("");
     wrap.querySelectorAll(".q-run-btn").forEach((b) =>

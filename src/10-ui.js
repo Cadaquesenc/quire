@@ -49,8 +49,12 @@
 
     const foot = m.querySelector(".q-sheet-foot");
     foot.innerHTML = "";
+    // one shape for every button in the app: a filled secondary, an accent
+    // primary, and a ghost for anything that is neither a decision nor a
+    // cancel. the variant is a class, never a second set of paddings.
     (opts.buttons || []).forEach((b) => {
-      const el = Q.el("button", { class: "q-btn" + (b.primary ? " primary" : "") }, Q.esc(b.label));
+      const kind = b.primary ? " primary" : b.kind ? " " + b.kind : "";
+      const el = Q.el("button", { class: "q-btn" + kind, type: "button" }, Q.esc(b.label));
       el.addEventListener("click", () => { if (!b.keepOpen) ui.closeModal(); b.run && b.run(); });
       foot.appendChild(el);
     });
@@ -70,6 +74,26 @@
   };
 
   ui.isModalOpen = () => !!(modal && modal.classList.contains("q-open"));
+
+  // ---- empty states ---------------------------------------------------------
+  //
+  // an empty panel is where an app either explains itself or shrugs. one shape
+  // for all of them: an icon, the fact, and what to do about it, in the three
+  // levels of text everything else here uses.
+
+  ui.empty = function (icon, title, hint) {
+    return '<div class="q-empty">' +
+      (icon && Q.icon ? Q.icon(icon, 22) : "") +
+      '<div class="q-empty-t">' + (title || "") + "</div>" +
+      (hint ? '<div class="q-empty-h">' + hint + "</div>" : "") +
+      "</div>";
+  };
+
+  // the same shape while something is still being read off the disk
+  ui.loading = function (what) {
+    return '<div class="q-empty"><span class="q-spinner"></span>' +
+      '<div class="q-empty-t">' + (what || "reading…") + "</div></div>";
+  };
 
   // a replacement for the prompt() the host took away
   ui.prompt = function (title, initial, placeholder) {
@@ -171,7 +195,7 @@
       '<div class="q-side-main">' +
         '<div class="q-side-head">' +
           '<span class="q-side-title"></span>' +
-          '<span class="q-side-close" title="Close the sidebar"></span>' +
+          '<span class="q-side-close q-iconbtn" title="Close the sidebar"></span>' +
         "</div>" +
         '<div class="q-side-stack"></div>' +
       "</div>" +
@@ -290,8 +314,13 @@
     ui.showPanel(ids[at === -1 ? 0 : (at + delta + ids.length) % ids.length]);
   };
 
-  // called once at boot, after every section has registered itself
+  // called once at boot, after every section has registered itself.
+  //
+  // never on a sticky. the preference is shared with the main window, so a note
+  // opened while the sidebar was up restored a 300px panel into a 380px window
+  // and squeezed the note into the 80px that were left.
   ui.restoreSidebar = function () {
+    if (document.body.classList.contains("q-sticky")) return;
     if (!Q.prefs().sideOpen) return;
     const want = Q.prefs().sideSection;
     const id = panels[want] ? want : ui.sections()[0];

@@ -181,11 +181,12 @@
   Q.backlinks = findBacklinks;
 
   Q.ui.registerPanel("backlinks", "Backlinks", function (body) {
-    body.innerHTML = '<div class="q-panel-loading">searching…</div>';
+    body.innerHTML = Q.ui.loading("searching the folder…");
     findBacklinks().then((refs) => {
       if (!refs.length) {
-        body.innerHTML = '<div class="q-panel-empty">nothing links here yet.<br><br>' +
-          'write <code>[[' + Q.esc(Q.doc.stem() || "Note") + ']]</code> in another note and it will show up.</div>';
+        body.innerHTML = Q.ui.empty("link", "nothing links here yet",
+          "write <code>[[" + Q.esc(Q.doc.stem() || "Note") +
+          "]]</code> in another note and it shows up here.");
         return;
       }
       body.innerHTML = refs.map((r) =>

@@ -264,7 +264,13 @@
     });
 
     Q.log("ready:", Q.commands().length, "commands");
-    Q.ui.toast("<b>Quire</b> · press <kbd>⌘⌥P</kbd>");
+    // not on a sticky. a note is two lines you wrote in a 380px window and the
+    // greeting lands on top of them. the class is set from the document path a
+    // moment after boot, so this asks late rather than early.
+    setTimeout(() => {
+      if (document.body.classList.contains("q-sticky")) return;
+      Q.ui.toast("<b>Quire</b> · press <kbd>⌘⌥P</kbd>");
+    }, 700);
   }
 
   boot();

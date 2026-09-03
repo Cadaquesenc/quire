@@ -147,9 +147,13 @@
   // ---- tags -----------------------------------------------------------------
 
   Q.ui.registerPanel("tags", "Tags", function (body) {
-    body.innerHTML = '<div class="q-panel-loading">scanning…</div>';
+    body.innerHTML = Q.ui.loading("scanning for tags…");
     const root = Q.doc.root();
-    if (!root) { body.innerHTML = '<div class="q-panel-empty">open a folder first.</div>'; return; }
+    if (!root) {
+      body.innerHTML = Q.ui.empty("files", "no folder open",
+        "tags are counted across whichever folder is open.");
+      return;
+    }
     Q.shell(
       `${Q.sh(Q.rg())} -o --no-filename --no-messages -g '*.md' ` +
       `${Q.sh("(^|\\s)#[A-Za-z][A-Za-z0-9_/-]*")} ${Q.sh(root)} ` +
@@ -160,8 +164,8 @@
         return m ? { n: +m[1], tag: m[2] } : null;
       }).filter(Boolean).filter((t) => !/^#{2,}/.test(t.tag));   // headings aren't tags
       if (!rows.length) {
-        body.innerHTML = '<div class="q-panel-empty">no <code>#tags</code> found under<br>' +
-          Q.esc(root) + "</div>";
+        body.innerHTML = Q.ui.empty("tag", "no tags here",
+          "nothing under <code>" + Q.esc(root) + "</code> uses <code>#tag</code>.");
         return;
       }
       body.innerHTML = '<div class="q-tags">' + rows.map((t) =>
