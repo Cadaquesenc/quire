@@ -903,3 +903,45 @@ because a pointer means the keyboard and the keyboard belongs to whoever is at
 the machine. the same goes for the drag handle on the sidebar and the caret
 landing in the frontmatter block, which is the one gesture the card is built
 around.
+
+## 2026-09-03 · the four things that were wrong once he actually used it
+
+four passes of selftests, 44 green stages, and then he opened it and found four
+things in about a minute. worth writing down which kind of bug each one was.
+
+**the rail was invisible.** the sidebar was one element that went `display:none`
+when you closed it, and the icon rail lived inside it. so closing the sidebar
+removed the only way to reopen it, and the whole workspace became keyboard-only
+the moment you shut it once. worse: the rail was built inside `showPanel`, so a
+launch with the sidebar closed never created it at all. the rail is its own
+always-on column now, 48px, and the document's right offset reads the same token
+so the two cannot drift.
+
+no test caught this because every test opened a panel first. the app was never
+observed in the state it actually boots into.
+
+**the terminal was writing in cursive.** `.q-term-line.info` was italic, and the
+bundled mono is victor mono, whose italic is a cursive script face. that face is
+deliberate, it is what markdown emphasis and code comments are for. it just also
+turned the terminal's own banner into handwriting sitting above the output. same
+leak in `.q-fm-v.mute` on the frontmatter card. chrome is not handwriting.
+the mono family was also only applied under `body.q-font-on:not(.q-font-mono)`,
+so outside that one font mode a terminal inherited the document's serif.
+
+**the window could not go fullscreen.** the host never sets
+`NSWindowCollectionBehaviorFullScreenPrimary`, so ctrl-cmd-F had nothing to act
+on and the green button only zoomed. the dylib now ors that bit in, plus
+`NSWindowStyleMaskResizable`, on document windows only. stickies keep opting out,
+because `JOIN_ALL_SPACES` and fullscreen are mutually exclusive and a note that
+follows you between desktops is the point of a note.
+
+**runAsk failed, and it was the test that was wrong.** `exec` returns early while
+a command is in flight, before it would have asked anything, so a stage that
+fired too soon after the previous one saw no dialog. "no confirm appeared" and "a
+command was already running" produce the identical observation. the runner
+exports `busy()` now and the stage waits for idle. the safety itself was never
+broken: 16 destructive commands were held the whole time.
+
+the pattern in three of the four: every one of them was a state the tests never
+put the app in. closed sidebar, default font mode, a window nobody tried to
+resize.

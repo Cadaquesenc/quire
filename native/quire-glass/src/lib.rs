@@ -175,6 +175,13 @@ const FLOATING_LEVEL: isize = 3;
 /// NSWindowCollectionBehaviorCanJoinAllSpaces, so a note does not vanish when
 /// you switch desktops, which is most of what a note is for.
 const JOIN_ALL_SPACES: usize = 1 << 0;
+/// NSWindowCollectionBehaviorFullScreenPrimary. the host never sets it, so the
+/// window was not a fullscreen candidate at all: the green button zoomed and
+/// ctrl-cmd-F did nothing, because there was nothing for either to act on.
+const FULLSCREEN_PRIMARY: usize = 1 << 7;
+/// NSWindowStyleMaskResizable. a window that cannot be resized cannot be taken
+/// fullscreen either, whatever its collection behaviour says.
+const RESIZABLE: usize = 1 << 3;
 
 const STICKY_W: f64 = 380.0;
 const STICKY_H: f64 = 320.0;
@@ -278,6 +285,33 @@ unsafe fn glass(window: Id) {
         CGSSetWindowBackgroundBlurRadius(CGSMainConnectionID(), wid, BLUR_RADIUS);
         if is_sticky(window) {
             sticky(window, wid);
+        } else {
+            allow_fullscreen(window);
+        }
+    }
+}
+
+/// a sticky deliberately opts out of fullscreen by taking JOIN_ALL_SPACES on its
+/// own, so this is only ever applied to ordinary document windows, and it only
+/// adds bits: whatever else the host wanted is kept.
+unsafe fn allow_fullscreen(window: Id) {
+    let sm_get = sel("styleMask");
+    let sm_set = sel("setStyleMask:");
+    if responds(window, sm_get) && responds(window, sm_set) {
+        let cur = send_isize(window, sm_get) as usize;
+        if cur & RESIZABLE == 0 {
+            let f: extern "C" fn(Id, Sel, usize) = std::mem::transmute(objc_msgSend as *const ());
+            f(window, sm_set, cur | RESIZABLE);
+        }
+    }
+
+    let cb_get = sel("collectionBehavior");
+    let cb_set = sel("setCollectionBehavior:");
+    if responds(window, cb_get) && responds(window, cb_set) {
+        let cur = send_isize(window, cb_get) as usize;
+        if cur & FULLSCREEN_PRIMARY == 0 {
+            let f: extern "C" fn(Id, Sel, usize) = std::mem::transmute(objc_msgSend as *const ());
+            f(window, cb_set, cur | FULLSCREEN_PRIMARY);
         }
     }
 }

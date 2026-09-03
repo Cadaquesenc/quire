@@ -423,8 +423,13 @@
 
   // ---- commands --------------------------------------------------------------
 
+  // exported so a caller can wait for the previous run to finish. exec returns
+  // early while one is in flight, before it would have asked anything, so a
+  // second run fired too soon looks exactly like a confirm that never appeared.
+  function busy() { return running; }
+
   Q.runner = { scan, classify, resultBlock, splice, resultFor, exec, draw,
-             fenceFor, fenceEls, shellEls, isShell, OUT_LANG };
+             fenceFor, fenceEls, shellEls, isShell, busy, OUT_LANG };
 
   function fenceAtCursor() {
     let el = null;

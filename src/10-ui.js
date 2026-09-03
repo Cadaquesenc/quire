@@ -321,6 +321,11 @@
   // and squeezed the note into the 80px that were left.
   ui.restoreSidebar = function () {
     if (document.body.classList.contains("q-sticky")) return;
+    // the rail has to exist even when the sidebar is shut, because the rail is
+    // how you open it. it used to be built inside showPanel, so a launch with
+    // the sidebar closed drew no rail at all and left the sections reachable
+    // only by keyboard.
+    ensurePanel();
     if (!Q.prefs().sideOpen) return;
     const want = Q.prefs().sideSection;
     const id = panels[want] ? want : ui.sections()[0];

@@ -32,6 +32,18 @@
 
   const later = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // a run still in flight makes exec return before it asks anything, so a stage
+  // that needs the confirm has to wait for the previous one to let go. without
+  // this, "no dialog appeared" and "a command was already running" look the same.
+  function idleRunner(tries) {
+    const n = tries == null ? 40 : tries;
+    if (n <= 0) return Promise.resolve();
+    let b = false;
+    try { b = Q.runner && Q.runner.busy && Q.runner.busy(); } catch (_) {}
+    if (!b) return Promise.resolve();
+    return later(100).then(() => idleRunner(n - 1));
+  }
+
   // a real file on disk that is definitely not markdown: our own source, which
   // sits next to index.html inside the bundle.
   function quireFile(name) {
@@ -988,6 +1000,7 @@
       // the confirm actually appears, and cancelling actually cancels. this is
       // the whole safety story for a feature that runs shell commands out of a
       // file somebody else wrote, so it is proven rather than asserted.
+      .then(() => idleRunner())
       .then(() => check("runAsk", () => {
         const f = { index: 0, lang: "bash", code: "rm -rf /tmp/quire-nope", start: 0, end: 0 };
         const p = Q.runner.exec(f);

@@ -71,6 +71,10 @@
    * difference between "a box with the corners knocked off" and something drawn
    * round on purpose. */
   --q-r1: 6px; --q-r2: 10px; --q-r3: 14px; --q-r4: 18px;
+  /* 38 icons + 4 gap + 2 left pad + 4 right pad. the document's right
+   * offset reads the same token, so the two cannot drift apart. */
+  --q-rail-w-inner: 38px;
+  --q-rail-w: 48px;
   --q-rp: 999px;
 
   /* control heights. every interactive thing in the app is one of these three,
@@ -778,18 +782,28 @@ table.q-stats td:last-child {
  * glass shows down both sides of it, which is the point of having glass.
  */
 
+/* the rail is always on screen, the column beside it is what opens and shuts.
+ * these used to be one element that went display:none together, which took the
+ * rail with it: closing the sidebar removed the only way to open it again, so
+ * the whole thing was keyboard-only once you shut it. */
 #q-panel {
   position: fixed;
   top: 28px; right: 0; bottom: 0;
-  width: var(--q-side-w, 300px);
-  display: none;
+  width: var(--q-rail-w);
+  display: flex;
   flex-direction: row;
   padding: 6px 4px 6px 2px;
   background: transparent;
   z-index: 11;
 }
-#q-panel.q-open { display: flex; }
+#q-panel.q-open { width: var(--q-side-w, 300px); }
+#q-panel > .q-side-main, #q-panel > .q-side-grip { display: none; }
+#q-panel.q-open > .q-side-main { display: flex; }
+#q-panel.q-open > .q-side-grip { display: block; }
 body.q-status-on #q-panel { bottom: 25px; }
+/* the document stops at the rail when shut, at the panel when open, so nothing
+ * ever renders underneath the icons */
+content { right: var(--q-rail-w); }
 body.q-panel-open content { right: var(--q-side-w, 300px); }
 /* no transition on this deliberately: reflowing the editor's width in step with
  * the panel's slide is two layout passes a frame */
@@ -831,7 +845,7 @@ body.q-side-resizing * { pointer-events: none; }
 .q-side-stack { flex: 1; min-height: 0; display: flex; }
 
 .q-rail {
-  flex: none; width: 38px;
+  flex: none; width: var(--q-rail-w-inner);
   display: flex; flex-direction: column; align-items: center;
   gap: 3px; padding: 2px 0;
   margin-left: 4px;
@@ -1077,7 +1091,10 @@ body.q-side-resizing * { pointer-events: none; }
 .q-term-ps { color: var(--q-accent); flex: none; }
 .q-term-line.out { color: var(--q-muted); }
 .q-term-line.err { color: var(--q-bad); }
-.q-term-line.info { color: var(--q-faint); font-style: italic; }
+/* not italic. the bundled mono is Victor Mono, whose italic is a cursive
+ * script face, so an italic info line rendered as handwriting sitting in
+ * the middle of a terminal. the faint colour is the distinction. */
+.q-term-line.info { color: var(--q-faint); }
 .q-term-line.busy { display: flex; align-items: center; gap: 8px; color: var(--q-faint); }
 .q-term-input-row {
   flex: none;
@@ -1428,7 +1445,8 @@ body.q-glass #write .md-fences[lang="quire-out"] {
   color: var(--q-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.q-fm-v.mute { color: var(--q-faint); font-style: italic; }
+/* mono + italic is the cursive face. chrome is not handwriting. */
+.q-fm-v.mute { color: var(--q-faint); }
 
 /* the raw block. base.css paints it #ccc, which is a light grey slab across the
  * top of a dark document, so that goes whether the card is drawn or not. */
@@ -1779,8 +1797,9 @@ body.q-font-on:not(.q-font-mono) #write code,
 body.q-font-on:not(.q-font-mono) #write pre,
 body.q-font-on:not(.q-font-mono) .CodeMirror,
 body.q-font-on:not(.q-font-mono) .q-pre,
-body.q-font-on:not(.q-font-mono) .q-term-out,
-body.q-font-on:not(.q-font-mono) .q-term-input { font-family: var(--q-mono); }
+/* a terminal is monospaced in every font mode, so this is stated once on the
+ * elements themselves rather than gated behind q-font-on */
+.q-term-out, .q-term-input { font-family: var(--q-mono) !important; }
 body.q-font-mono { letter-spacing: -0.012em; }
 body.q-font-mono #write em,
 body.q-font-mono #write .md-comment { font-style: italic; }
