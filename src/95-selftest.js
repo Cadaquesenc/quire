@@ -101,7 +101,7 @@
         input.dispatchEvent(new Event("input"));
         const rows = document.querySelectorAll(".q-pal-item").length;
         const detailPane = document.querySelector(".q-pal-detail");
-        const open = !!document.querySelector("#q-palette.show");
+        const open = !!document.querySelector("#q-palette.q-open");
         return {
           ok: open && rows > 0 && detailPane && detailPane.innerHTML.trim().length > 0,
           detail: rows + " rows",

@@ -15,7 +15,9 @@
     if (!root) return Promise.resolve([]);
     const fresh = cache.root === root && Date.now() - cache.at < 15000;
     if (fresh && !force) return Promise.resolve(cache.files);
-    return Q.shell(
+    // 5000 paths is well past a single pipe buffer on any real vault, so this
+    // one reads back in chunks too
+    return Q.shellBig(
       `${Q.sh(Q.rg())} --files --no-messages -g '*.md' -g '*.markdown' ${Q.sh(root)} ` +
       `2>/dev/null | head -5000`
     ).then((r) => {
@@ -23,7 +25,7 @@
         path: p,
         name: p.slice(p.lastIndexOf("/") + 1),
         stem: p.slice(p.lastIndexOf("/") + 1).replace(/\.[^.]+$/, ""),
-        rel: p.startsWith(root) ? p.slice(root.length + 1) : p,
+        rel: Q.rel(p, root),
       }));
       cache.root = root; cache.files = files; cache.at = Date.now();
       return files;
@@ -169,7 +171,7 @@
       });
       return Object.keys(byFile).map((p) => ({
         path: p,
-        rel: p.startsWith(root) ? p.slice(root.length + 1) : p,
+        rel: Q.rel(p, root),
         stem: p.slice(p.lastIndexOf("/") + 1).replace(/\.[^.]+$/, ""),
         hits: byFile[p],
       }));
@@ -232,7 +234,7 @@
                 const m = /^(.*?):(\d+):(.*)$/.exec(l) || [];
                 const p = m[1] || l;
                 return '<div class="q-mention" data-path="' + Q.esc(p) + '">' +
-                  '<span class="q-mention-file">' + Q.esc(p.slice(root.length + 1)) + ":" + (m[2] || "") + "</span>" +
+                  '<span class="q-mention-file">' + Q.esc(Q.rel(p, root)) + ":" + (m[2] || "") + "</span>" +
                   '<span class="q-mention-text">' + Q.esc((m[3] || "").trim().slice(0, 200)) + "</span></div>";
               }).join("") + "</div>"
             : "<p>no unlinked mentions.</p>",

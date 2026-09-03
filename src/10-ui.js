@@ -17,9 +17,9 @@
       document.body.appendChild(toastEl);
     }
     toastEl.innerHTML = html;
-    toastEl.classList.add("show");
+    toastEl.classList.add("q-open");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms || 4000);
+    toastTimer = setTimeout(() => toastEl.classList.remove("q-open"), ms || 4000);
   };
 
   ui.error = (msg) => ui.toast('<span class="q-bad">' + Q.esc(msg) + "</span>", 6000);
@@ -54,7 +54,7 @@
       el.addEventListener("click", () => { if (!b.keepOpen) ui.closeModal(); b.run && b.run(); });
       foot.appendChild(el);
     });
-    m.classList.add("show");
+    m.classList.add("q-open");
     m.dataset.wide = opts.wide ? "1" : "";
     setTimeout(() => {
       const f = body.querySelector("input, textarea, button");
@@ -65,11 +65,11 @@
 
   ui.closeModal = function () {
     if (!modal) return;
-    modal.classList.remove("show");
+    modal.classList.remove("q-open");
     try { Q.ed().refocus(); } catch (_) {}
   };
 
-  ui.isModalOpen = () => !!(modal && modal.classList.contains("show"));
+  ui.isModalOpen = () => !!(modal && modal.classList.contains("q-open"));
 
   // a replacement for the prompt() the host took away
   ui.prompt = function (title, initial, placeholder) {
@@ -155,7 +155,7 @@
     ensurePanel();
     activePanel = id;
     document.body.classList.add("q-panel-open");
-    panelEl.classList.add("show");
+    panelEl.classList.add("q-open");
     renderTabs();
     const body = panelEl.querySelector(".q-panel-body");
     body.innerHTML = "";
@@ -166,13 +166,13 @@
 
   ui.hidePanel = function () {
     if (!panelEl) return;
-    panelEl.classList.remove("show");
+    panelEl.classList.remove("q-open");
     document.body.classList.remove("q-panel-open");
     activePanel = null;
   };
 
   ui.togglePanel = function (id) {
-    if (activePanel === id && panelEl && panelEl.classList.contains("show")) ui.hidePanel();
+    if (activePanel === id && panelEl && panelEl.classList.contains("q-open")) ui.hidePanel();
     else ui.showPanel(id);
   };
 

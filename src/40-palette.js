@@ -115,7 +115,7 @@
   function open() {
     if (!P.el) build();
     P.open = true;
-    P.el.classList.add("show");
+    P.el.classList.add("q-open");
     P.input.value = "";
     filter("");
     P.input.focus();
@@ -124,7 +124,7 @@
   function close() {
     if (!P.el) return;
     P.open = false;
-    P.el.classList.remove("show");
+    P.el.classList.remove("q-open");
     try { Q.ed().refocus(); } catch (_) {}
   }
 

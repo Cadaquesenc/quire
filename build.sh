@@ -45,8 +45,18 @@ done
 
 echo "==> $NAME $VERSION"
 
-# quit a running copy so we are not editing a live bundle
-pgrep -x "$NAME" >/dev/null && { osascript -e "quit app \"$NAME\"" >/dev/null 2>&1 || true; sleep 2; }
+# quit a running copy so we are not editing a live bundle, and so --run opens
+# the build that was just made. the executable inside the bundle still carries
+# the base app's name, so `pgrep -x Quire` matches nothing and neither does
+# `quit app "Quire"` — both have to go through the bundle identifier.
+if pgrep -f "$INSTALL_DIR/$NAME.app/Contents/MacOS/" >/dev/null 2>&1; then
+  echo "==> quitting the running copy"
+  osascript -e "quit app id \"$BUNDLE_ID\"" >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    pgrep -f "$INSTALL_DIR/$NAME.app/Contents/MacOS/" >/dev/null 2>&1 || break
+    sleep 0.5
+  done
+fi
 
 rm -rf "$HERE/build"
 mkdir -p "$HERE/build"
@@ -187,12 +197,16 @@ domain = sys.argv[1]
 b = lambda k, v: ["defaults", "write", domain, k, "-bool", v]
 s = lambda k, v: ["defaults", "write", domain, k, "-string", v]
 i = lambda k, v: ["defaults", "write", domain, k, "-int", str(v)]
+# the keys are the ones File.option actually reads. the snake_case spellings
+# that look right in the plist (enable_inline_math, enable_sub, ...) are read by
+# nothing: the runtime asks for enableInlineMath, and a key it does not know
+# about is simply never loaded.
 cmds = [
-    b("enable_inline_math", "true"),
-    b("enable_diagram", "true"),
-    b("enable_highlight", "true"),
-    b("enable_sub", "true"),
-    b("enable_sup", "true"),
+    b("enableInlineMath", "true"),
+    b("enableDiagram", "true"),
+    b("enableHighlight", "true"),
+    b("enableSubscript", "true"),
+    b("enableSuperscript", "true"),
     b("useTreeStyle", "true"),
     b("showLineNumbersForFence", "true"),
     b("useRelativePathForImg", "true"),

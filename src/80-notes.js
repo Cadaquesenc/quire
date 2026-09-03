@@ -186,7 +186,7 @@
           const m = /^(.*?):(\d+):(.*)$/.exec(l) || [];
           const p = m[1] || l;
           return '<div class="q-mention" data-path="' + Q.esc(p) + '">' +
-            '<span class="q-mention-file">' + Q.esc(p.slice(root.length + 1)) + "</span>" +
+            '<span class="q-mention-file">' + Q.esc(Q.rel(p, root)) + "</span>" +
             '<span class="q-mention-text">' + Q.esc((m[3] || "").trim().slice(0, 200)) + "</span></div>";
         }).join("") + "</div>",
         buttons: [{ label: "Done", primary: true }],

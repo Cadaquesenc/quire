@@ -23,7 +23,9 @@
     // one find, everything, size and mtime included. the sort is by directory
     // then name so the grouping below is a single pass.
     const globs = Q.SKIP.map((d) => `-g ${Q.sh("!" + d + "/")}`).join(" ");
-    return Q.shell(
+    // shellBig, not shell: 8000 rows of `mtime|size|path` is a quarter of a
+    // megabyte, and anything over one pipe buffer never comes back at all.
+    return Q.shellBig(
       `${Q.sh(Q.rg())} --files --no-messages ${globs} ${Q.sh(root)} 2>/dev/null | head -8000 | ` +
       `tr '\\n' '\\0' | xargs -0 stat -f '%m|%z|%N' 2>/dev/null | sort -t'|' -k3`
     ).then((r) => {
@@ -37,7 +39,7 @@
           path,
           name: path.slice(slash + 1),
           dir,
-          reldir: dir === root ? "" : dir.slice(root.length + 1),
+          reldir: Q.rel(dir, root),
           mtime: +line.slice(0, i1) * 1000,
           size: +line.slice(i1 + 1, i2),
           md: MARKDOWN.test(path),
@@ -112,7 +114,7 @@
 
         list.innerHTML = Object.keys(groups).sort().map((dir) =>
           '<div class="q-fgroup">' +
-          '<div class="q-fgroup-name">' + Q.icon("folder", 12) +
+          '<div class="q-fgroup-name">' + Q.icon("files", 12) +
           "<span>" + Q.esc(dir || "·") + "</span>" +
           '<i>' + groups[dir].length + "</i></div>" +
           groups[dir].map((f) =>
@@ -150,7 +152,7 @@
   // clicking a folder in the status bar opens this panel scoped to it
   Q.on("navigate", function (dir) {
     const root = Q.doc.root();
-    state.filter = root && dir.length > root.length ? dir.slice(root.length + 1) : "";
+    state.filter = Q.rel(dir, root) || "";
     state.showAll = true;
     Q.ui.showPanel("files");
   });

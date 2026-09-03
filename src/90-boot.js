@@ -65,10 +65,14 @@
     const name = Q.doc.name();
     const root = Q.doc.root();
     const dir = Q.doc.dir();
-    let rel = "";
     // the root is already the first crumb; when the file sits directly in it
-    // there is no relative part to add, or the folder appears twice
-    if (root && dir && dir.length > root.length) rel = dir.slice(root.length + 1);
+    // there is no relative part to add, or the folder appears twice. and when
+    // the file is not under the root at all — an open document from anywhere
+    // else — the root is not its parent and must not be the first crumb, or the
+    // bar claims the file lives somewhere it does not.
+    const inRoot = !!(root && dir && (dir === root || dir.indexOf(root + "/") === 0));
+    const base = inRoot ? root : dir;
+    const rel = inRoot ? Q.rel(dir, root) : "";
 
     let edited = false;
     try { edited = !!(window.File && window.File.isEdited); } catch (_) {}
@@ -83,11 +87,11 @@
     slotMode.set(mode, "click to toggle source mode");
 
     const crumbs = [];
-    if (root) {
-      const rootName = root.slice(root.lastIndexOf("/") + 1);
-      crumbs.push({ label: rootName, dir: root });
+    if (base) {
+      const rootName = base.slice(base.lastIndexOf("/") + 1);
+      crumbs.push({ label: rootName, dir: base });
       if (rel) {
-        let acc = root;
+        let acc = base;
         rel.split("/").forEach((seg) => {
           acc += "/" + seg;
           crumbs.push({ label: seg, dir: acc });

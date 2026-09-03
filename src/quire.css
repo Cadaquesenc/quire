@@ -91,6 +91,12 @@ kbd {
 
 .q-bad { color: #e05252; }
 
+/* everything visible-vs-hidden here is `.q-open`, never `.show`. the host
+ * bundles bootstrap 3, whose `.show { display: block !important }` beats
+ * `#q-palette.show { display: flex }` on the !important flag alone — which
+ * silently turned the palette and every dialog into a block, so the centring
+ * stopped applying and both boxes sat against the left edge of the window. */
+
 /* ---- status bar ---------------------------------------------------------- */
 
 #q-status {
@@ -147,7 +153,7 @@ body.q-status-on content { bottom: 28px; }
   z-index: 60;
   line-height: 1.5;
 }
-#q-toast.show { opacity: 1; transform: translate(-50%, 0); }
+#q-toast.q-open { opacity: 1; transform: translate(-50%, 0); }
 #q-toast pre { margin: 4px 0 0; font-family: var(--q-mono); font-size: 11px; white-space: pre-wrap; }
 
 /* ---- command palette ----------------------------------------------------- */
@@ -161,7 +167,7 @@ body.q-status-on content { bottom: 28px; }
   z-index: 70;
   backdrop-filter: blur(2px);
 }
-#q-palette.show { display: flex; }
+#q-palette.q-open { display: flex; }
 .q-pal-box {
   margin-top: 12vh;
   width: 620px;
@@ -231,7 +237,7 @@ body.q-status-on content { bottom: 28px; }
   align-items: flex-start;
   z-index: 80;
 }
-#q-modal.show { display: flex; }
+#q-modal.q-open { display: flex; }
 .q-sheet {
   margin-top: 14vh;
   width: 520px;
@@ -358,7 +364,7 @@ table.q-stats td:last-child { text-align: right; font-variant-numeric: tabular-n
   border-left: 1px solid var(--q-line);
   z-index: 11;
 }
-#q-panel.show { display: flex; }
+#q-panel.q-open { display: flex; }
 body.q-status-on #q-panel { bottom: 25px; }
 body.q-panel-open content { right: 300px; }
 /* no transition on this deliberately: reflowing the editor's width in step with
@@ -707,11 +713,11 @@ body.q-glass #q-status { border-top: 0; }
 .q-pal-box, .q-sheet, #q-panel { will-change: transform, opacity; }
 #q-panel, .q-pal-list, .q-panel-body { contain: layout paint; }
 
-#q-palette.show, #q-modal.show { animation: q-fade 0.1s linear both; }
-#q-palette.show .q-pal-box, #q-modal.show .q-sheet {
+#q-palette.q-open, #q-modal.q-open { animation: q-fade 0.1s linear both; }
+#q-palette.q-open .q-pal-box, #q-modal.q-open .q-sheet {
   animation: q-rise 0.14s var(--q-ease) both;
 }
-#q-panel.show { animation: q-slide-in 0.16s var(--q-ease) both; }
+#q-panel.q-open { animation: q-slide-in 0.16s var(--q-ease) both; }
 .q-pal-item, .q-panel-tab, .q-model, .q-tag, .q-back {
   transition: background-color var(--q-fast) var(--q-ease), opacity var(--q-fast) var(--q-ease);
 }
@@ -720,8 +726,8 @@ body.q-glass #q-status { border-top: 0; }
 
 
 @media (prefers-reduced-motion: reduce) {
-  #q-palette.show, #q-modal.show, #q-panel.show,
-  #q-palette.show .q-pal-box, #q-modal.show .q-sheet,
+  #q-palette.q-open, #q-modal.q-open, #q-panel.q-open,
+  #q-palette.q-open .q-pal-box, #q-modal.q-open .q-sheet,
   .q-file, .q-pick-item { animation: none; }
   .q-pal-item, .q-panel-tab, .q-model, .q-tag, .q-back, .q-btn, #q-status .q-cell {
     transition: none;
@@ -944,7 +950,7 @@ body.q-theme .q-wk-title { background: var(--tn-bg); }
   opacity: 0; transform: translate3d(0, 10px, 0);
   transition: opacity 0.14s var(--q-ease), transform 0.14s var(--q-ease);
 }
-#q-whichkey.show { opacity: 1; transform: none; }
+#q-whichkey.q-open { opacity: 1; transform: none; }
 .q-wk-box {
   width: min(980px, 100%);
   max-height: 46vh;

@@ -76,12 +76,72 @@ window.Q = (function () {
     return { ok: r != null, code: 0, out: String(r == null ? "" : r).trim(), err: "" };
   }
 
-  Q.shell = function (cmd, cwd) {
+  function raw(cmd, cwd) {
     const payload = { args: String(cmd), cwd: cwd || Q.doc.dir() || "" };
     const p = Q.channel === "invoke"
       ? Q.invoke("controller.runCommand", payload)
       : Q.call("controller.runCommand", payload);
     return p.then(parseResult);
+  }
+
+  // the native handler waits for the command to exit and only then reads what
+  // it wrote. a unix pipe holds 64 KB; past that the child blocks on write, the
+  // handler blocks on the child, and the promise never settles — the editor
+  // just stops, with a stuck bash left behind. measured: 64000 bytes comes back
+  // in 69ms, 70000 never comes back at all.
+  //
+  // so every command is capped below one buffer, on both streams. stderr goes
+  // to a file rather than a second pipe because a pipe would deadlock the same
+  // way, and PIPESTATUS carries the real exit status past the truncation.
+  Q.OUT_MAX = 60000;
+
+  function cap(cmd) {
+    return '__qerr=$(mktemp -t quire 2>/dev/null) || __qerr="${TMPDIR:-/tmp}/quire-err.$$"; ( ' + cmd +
+      '\n) 2>"$__qerr" | head -c ' + Q.OUT_MAX + '; __qst=${PIPESTATUS[0]}; ' +
+      'head -c ' + Q.OUT_MAX + ' "$__qerr" >&2; rm -f "$__qerr"; exit $__qst';
+  }
+
+  Q.shell = function (cmd, cwd) {
+    return raw(cap(cmd), cwd);
+  };
+
+  // for the one thing that genuinely needs more than a bufferful: a whole-vault
+  // file listing. the command writes to a file and the result is read back in
+  // chunks that each fit, base64'd so the trim in parseResult cannot eat a
+  // newline on a chunk boundary.
+  const CHUNK = 42000;                    // 42000 raw -> ~56000 base64
+
+  Q.shellBig = function (cmd, cwd, limit) {
+    const max = limit || 4000000;
+    const tmp = '"${TMPDIR:-/tmp}/quire-' + Date.now().toString(36) +
+      Math.random().toString(36).slice(2, 8) + '"';
+    const bin = [];
+    const done = (r) => Q.shell("rm -f " + tmp, cwd).then(() => r);
+
+    function chunk(off, size) {
+      if (off >= size) return Promise.resolve();
+      return Q.shell(`tail -c +${off + 1} ${tmp} | head -c ${CHUNK} | base64`, cwd)
+        .then((r) => {
+          const b64 = r.out.replace(/\s+/g, "");
+          if (!b64) return;
+          bin.push(atob(b64));
+          return chunk(off + CHUNK, size);
+        });
+    }
+
+    return Q.shell(`( ${cmd}\n) > ${tmp} 2>/dev/null; wc -c < ${tmp}`, cwd)
+      .then((r) => {
+        const size = Math.min(parseInt(r.out, 10) || 0, max);
+        return chunk(0, size);
+      })
+      .then(() => {
+        const s = bin.join("");
+        const bytes = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i) & 0xff;
+        return { ok: true, code: 0, err: "",
+                 out: new TextDecoder("utf-8").decode(bytes).trim() };
+      })
+      .then(done, (e) => done(null).then(() => { throw e; }));
   };
 
   // run a command and hand it stdin without any quoting problems.
@@ -181,8 +241,14 @@ window.Q = (function () {
       let mounted = "";
       try {
         const F = window.File;
-        mounted = (F.editor.library && F.editor.library.rootPath) || F.mountFolder || "";
+        // the host's accessor is a method, not a property. reading
+        // F.mountFolder or F.editor.library.rootPath returns undefined every
+        // time, which is why every search panel used to ignore the folder you
+        // had actually opened and fall through to the configured default.
+        if (typeof F.getMountFolder === "function") mounted = F.getMountFolder() || "";
+        if (!mounted) mounted = (F.editor.library && F.editor.library.rootPath) || F.mountFolder || "";
       } catch (_) {}
+      if (mounted) mounted = String(mounted).replace(/\/+$/, "");
       if (mounted) return mounted;
       const v = Q.vaultRoot();
       if (v) return v;
@@ -266,6 +332,16 @@ window.Q = (function () {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   Q.sh = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";   // single-quote for bash
+
+  // a path shown relative to a folder — but only when it really is inside it.
+  // `startsWith(root)` is not that test: /Users/me/Code matches /Users/me/Codex
+  // too, and slicing then eats the wrong first character.
+  Q.rel = function (path, root) {
+    path = String(path || "");
+    if (!root) return path;
+    if (path === root) return "";
+    return path.indexOf(root + "/") === 0 ? path.slice(root.length + 1) : path;
+  };
 
   // the host bundles ripgrep 12.1.1 to power its own search. every scan here
   // uses it too, and the difference is not small: `find` over ~/Code took over

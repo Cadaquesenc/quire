@@ -46,7 +46,7 @@
         "</div>").join("") +
       "</div></div>");
     document.body.appendChild(el);
-    requestAnimationFrame(() => el && el.classList.add("show"));
+    requestAnimationFrame(() => el && el.classList.add("q-open"));
   }
 
   function hide() {
