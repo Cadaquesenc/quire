@@ -46,7 +46,7 @@
   --q-mono: "Operator Mono", "MonoLisa", "Victor Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
-/* thin overlay scrollbars everywhere ours renders — apple's, not the web's */
+/* thin overlay scrollbars everywhere ours renders, apple's rather than the web's */
 #q-panel ::-webkit-scrollbar,
 #q-palette ::-webkit-scrollbar,
 #q-modal ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -93,7 +93,7 @@ kbd {
 
 /* everything visible-vs-hidden here is `.q-open`, never `.show`. the host
  * bundles bootstrap 3, whose `.show { display: block !important }` beats
- * `#q-palette.show { display: flex }` on the !important flag alone — which
+ * `#q-palette.show { display: flex }` on the !important flag alone, which
  * silently turned the palette and every dialog into a block, so the centring
  * stopped applying and both boxes sat against the left edge of the window. */
 
@@ -257,7 +257,7 @@ body.q-status-on content { bottom: 28px; }
   padding: 12px 20px;
   border-top: 1px solid var(--q-line);
 }
-/* secondary buttons carry no border at all — discord's dialogs use text-only
+/* secondary buttons carry no border at all. discord's dialogs use text-only
  * for anything that isn't the action you came for */
 .q-btn {
   padding: 7px 16px;
@@ -489,7 +489,7 @@ body.q-zen content { top: 0; bottom: 0; right: 0; }
 body.q-zen #write { max-width: 40em; }
 
 /* ---- glass --------------------------------------------------------------- *
- * the window is already non-opaque and blurred by the time this runs — that is
+ * the window is already non-opaque and blurred by the time this runs. that is
  * the native half's job. what is left is to stop every layer of the host's own
  * chrome painting over it, and to put the tint back exactly once, on the body.
  *
@@ -532,14 +532,14 @@ body.q-glass .q-view-note { background: rgba(255, 255, 255, 0.05); }
 /* overlays stay solid: a translucent dialog over a translucent window is mud */
 /* opaque, deliberately. these animate, and a moving backdrop-filter on top of
  * an already-blurred window makes the compositor re-render the entire stack
- * every frame — which is exactly what a dropped palette animation looks like. */
+ * every frame, which is exactly what a dropped palette animation looks like. */
 body.q-glass .q-pal-box,
 body.q-glass .q-sheet,
 body.q-glass .q-wk-box {
   background-color: rgba(26, 26, 26, 0.97);
 }
 
-/* code blocks need a floor or they vanish into the desktop — but the floor goes
+/* code blocks need a floor or they vanish into the desktop, but the floor goes
  * on the wrapper only. codemirror paints four nested elements of its own, and
  * every one of them stacking its own tint is what turns a code block into an
  * opaque slab. */
@@ -576,7 +576,7 @@ body.q-glass #write .md-diagram-panel {
   font-style: normal;
   font-display: swap;
 }
-/* the cursive italic is the whole point of this face — markdown emphasis and
+/* the cursive italic is the whole point of this face. markdown emphasis and
  * code comments get it, which is what operator mono is bought for */
 @font-face {
   font-family: "Victor Mono";
@@ -604,7 +604,7 @@ body.q-font-on header,
 body.q-font-on #write {
   font-family: var(--q-font, -apple-system, sans-serif);
 }
-/* code keeps a mono face whatever the ui is set to — unless the ui face is
+/* code keeps a mono face whatever the ui is set to, unless the ui face is
  * already one, in which case switching would break the very look that was
  * chosen */
 body.q-font-on:not(.q-font-mono) #write code,
@@ -975,10 +975,10 @@ kbd {
  * discord: the text hierarchy. three levels, and almost everything that isn't
  * the words you wrote sits on the bottom two.
  *
- * apple: restraint on colour. one accent, and the prose stays a single colour —
+ * apple: restraint on colour. one accent, and the prose stays a single colour,
  * no rainbow headings. an editor is for reading.
  *
- * lazyvim: the structures only — which-key, the picker layout, titled floats, a
+ * lazyvim: the structures only: which-key, the picker layout, titled floats, a
  * mode block. its colour scheme is deliberately not here.
  */
 
@@ -1016,8 +1016,8 @@ body.q-theme {
   --q-glass-tint: 28, 28, 28;
 }
 
-/* prose stays one colour. only the things that are not prose — code, links,
- * marks — get any at all, and they get the muted ansi ones. */
+/* prose stays one colour. only the things that are not prose, code and links and
+ * marks, get any at all, and they get the muted ansi ones. */
 body.q-theme #write { color: var(--gh-fg); }
 body.q-theme #write h1, body.q-theme #write h2, body.q-theme #write h3,
 body.q-theme #write h4, body.q-theme #write h5, body.q-theme #write h6 {
@@ -1141,7 +1141,7 @@ body.q-theme #q-status .q-dirty { background: var(--tn-yellow); opacity: 1; }
 
 
 /* ---- weight --------------------------------------------------------------- *
- * inter at 400 goes thin and grey on a dark ground — it was drawn for white.
+ * inter at 400 goes thin and grey on a dark ground. it was drawn for white.
  * everything steps up one, headings step up two, and the tracking comes in to
  * match, which is what stops a heavier weight reading as wider.
  */
@@ -1167,7 +1167,7 @@ body.q-font-on #write strong { font-weight: 700; }
 /* ---- floats stay opaque --------------------------------------------------- *
  * this has to be last. the float rules further up use the `background`
  * shorthand, which beats any `background-color` declared before it no matter
- * how specific — so the glass pass kept losing to the border pass, and the
+ * how specific, so the glass pass kept losing to the border pass, and the
  * palette read as a pane of the document rather than a thing on top of it.
  *
  * a popover over a translucent window has to be solid. two levels of see-through
@@ -1182,3 +1182,106 @@ body.q-theme .q-wk-box { background: var(--gh-bg); }
 
 /* and the scrim behind them goes darker, so the float has an edge to sit on */
 #q-palette, #q-modal { background: rgba(0, 0, 0, 0.46); }
+
+/* ---- the guard bar --------------------------------------------------------- *
+ * a bar, and deliberately not a dialog. this app raises native panels of its
+ * own, and two modals at once is a deadlock: the panel blocks the app and the
+ * app blocks whatever was talking to it. so the loudest thing the file guard
+ * ever does is sit under the titlebar and wait.
+ *
+ * it hangs from the top rather than dropping into the layout, because `content`
+ * is absolutely positioned by the host and anything that changes its box makes
+ * the whole document reflow. */
+
+#q-guardbar {
+  position: fixed;
+  top: 0; left: 50%;
+  transform: translate(-50%, -130%);
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(760px, 82vw);
+  padding: 8px 10px 8px 14px;
+  background: var(--q-bg);
+  border: 1px solid var(--q-line);
+  border-top: none;
+  border-radius: 0 0 var(--q-r3) var(--q-r3);
+  box-shadow: var(--q-shadow);
+  z-index: 58;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--q-med) var(--q-ease), transform var(--q-med) var(--q-ease);
+}
+#q-guardbar.q-open { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+
+#q-guardbar .q-guardbar-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #d9a441;
+  flex: none;
+}
+#q-guardbar[data-kind="conflict"] .q-guardbar-dot { background: #e05252; }
+#q-guardbar .q-guardbar-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#q-guardbar .q-guardbar-acts { display: flex; gap: 4px; flex: none; }
+#q-guardbar .q-guardbar-btn {
+  font: inherit; font-weight: 550;
+  padding: 4px 10px;
+  border: none; border-radius: var(--q-r1);
+  background: var(--q-e1);
+  color: var(--q-fg);
+  cursor: default;
+  transition: background-color var(--q-fast) ease, transform 0.08s ease;
+}
+#q-guardbar .q-guardbar-btn:hover { background: var(--q-e2); }
+#q-guardbar .q-guardbar-btn:active { transform: scale(0.97); }
+#q-guardbar .q-guardbar-x {
+  flex: none; opacity: 0.4; cursor: default; padding: 0 4px; font-size: 15px;
+}
+#q-guardbar .q-guardbar-x:hover { opacity: 0.9; }
+
+.q-warn { color: #d9a441; }
+
+/* ---- diffs ----------------------------------------------------------------- */
+
+.q-diff {
+  font-family: var(--q-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  max-height: 58vh;
+  overflow: auto;
+  border: 1px solid var(--q-line);
+  border-radius: var(--q-r2);
+  padding: 8px 0;
+  background: color-mix(in srgb, var(--q-fg) 3%, transparent);
+}
+.q-diff-l { padding: 0 12px; white-space: pre; }
+.q-diff-l.f { opacity: 0.45; }
+.q-diff-l.h { color: var(--q-accent); opacity: 0.9; }
+.q-diff-l.d { background: color-mix(in srgb, #e05252 16%, transparent); }
+.q-diff-l.a { background: color-mix(in srgb, #4fa96a 16%, transparent); }
+
+/* ---- stickies -------------------------------------------------------------- *
+ * the same app in a 380px window, with everything that makes it an editor taken
+ * off: no status bar, no rail, no sidebar, no footer. the window level and the
+ * frame are set from the dylib, because NSWindow is not reachable from here. */
+
+body.q-sticky #q-status,
+body.q-sticky #q-panel,
+body.q-sticky #typora-sidebar,
+body.q-sticky footer,
+body.q-sticky #footer-word-count,
+body.q-sticky .info-panel-tab-border { display: none !important; }
+
+body.q-sticky #write {
+  padding: 10px 16px 24px;
+  max-width: none;
+  font-size: 14px;
+  line-height: 1.55;
+}
+body.q-sticky content { top: 22px !important; bottom: 0 !important; left: 0 !important; }
+/* the frontmatter is the note's provenance, not its content. it stays readable
+ * and stops competing with the two lines you actually wrote. */
+body.q-sticky #write .md-meta-block,
+body.q-sticky #write pre.md-meta-block {
+  font-size: 10px;
+  opacity: 0.34;
+  line-height: 1.35;
+  margin-bottom: 8px;
+}

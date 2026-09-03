@@ -204,6 +204,11 @@ window.Q = (function () {
     sideOpen: false,
     sideSection: "files",
     sideWidth: 300,
+    // "block" holds a save that would rewrite lines nobody touched until the
+    // answer is yes. "off" is the 2021 behaviour: whatever the writer produces
+    // goes straight to disk.
+    saveGuard: "block",
+    stickyDir: "~/.quire/stickies",
   };
 
   let prefs = null;
@@ -275,9 +280,15 @@ window.Q = (function () {
     selection() {
       try { return Q.ed().selection.getTextInSelection() || ""; } catch (_) { return ""; }
     },
-    // replace the selection in a single undo step
+    // replace the selection in a single undo step.
+    //
+    // the save guard watches how many lines move per keystroke and gets loud
+    // when a lot of them move at once, so anything that changes a page on
+    // purpose says so first. a sort or a selection-to-table is not the writer
+    // going haywire, it is the thing you asked for.
     replaceSelection(text) {
       const ed = Q.ed();
+      try { Q.guard.deliberate(); } catch (_) {}
       try {
         ed.undo.exeCommand(() => ed.insertText(text, true));
       } catch (_) {
@@ -286,6 +297,7 @@ window.Q = (function () {
     },
     insert(text) {
       const ed = Q.ed();
+      try { Q.guard.deliberate(); } catch (_) {}
       try {
         ed.undo.exeCommand(() => ed.insertText(text, false));
       } catch (_) {

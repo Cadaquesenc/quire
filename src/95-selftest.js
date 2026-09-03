@@ -42,11 +42,195 @@
     return href.slice(0, i).replace(/^file:\/\//, "") + "/TypeMark/quire/" + name;
   }
 
+  // a scratch directory to make files in. never the repo, never the vault: a
+  // test that writes where you work is a test that eventually deletes something.
+  let TMP = "";
+  const t = (name) => TMP + "/quire-st-" + name;
+
+  // the destructive stage is behind a second marker file. it makes the open
+  // document dirty on purpose to watch what the writer does with it, and that is
+  // not something to do to somebody's document because a marker file from last
+  // week is still lying around.
+  let SAVE_PROBE = false;
+  // and a third marker for the one probe that cannot clean up after itself: it
+  // arms the buffer and stops, because the thing it is measuring only happens
+  // when the app is asked to quit.
+  let QUIT_PROBE = false;
+
   function boot() {
     if (!window.File || !window.File.editor || !Q.ui) return setTimeout(boot, 200);
     Q.checkShell()
       .then((ok) => (ok ? Q.shell('[ -f "$HOME/.quire-selftest" ] && echo yes') : { out: "" }))
-      .then((r) => { if (r.out.trim() === "yes") suite(); });
+      .then((r) => {
+        if (r.out.trim() !== "yes") return;
+        // `pwd -P`, not $TMPDIR. on macos $TMPDIR is /var/folders/... and /var
+        // is a symlink to /private/var, so the shell says one path and
+        // File.filePath says the other. the save probe compares them and
+        // refused its own scratch document over exactly that.
+        return Q.shell('cd "${TMPDIR:-/tmp}" && printf %s "$(pwd -P)"; ' +
+                       '[ -f "$HOME/.quire-selftest-save" ] && printf "\\tSAVE"; ' +
+                       '[ -f "$HOME/.quire-selftest-quitprobe" ] && printf "\\tQUIT"')
+          .then((s) => {
+            const parts = s.out.split("\t");
+            TMP = (parts[0] || "/tmp").replace(/\/+$/, "");
+            SAVE_PROBE = parts.indexOf("SAVE") !== -1;
+            QUIT_PROBE = parts.indexOf("QUIT") !== -1;
+            suite();
+          });
+      });
+  }
+
+  // poll a promise-returning predicate until it says yes or the clock runs out
+  function waitFor(fn, ms, step) {
+    const until = Date.now() + ms;
+    const once = () => Promise.resolve().then(fn).then((ok) => {
+      if (ok) return true;
+      if (Date.now() > until) return false;
+      return later(step || 400).then(once);
+    });
+    return once();
+  }
+
+  // does the native writer actually use the string the hook hands back?
+  //
+  // there is no way to press ⌘S from here and no javascript entry point to the
+  // save: on macos it is an NSDocument and the menu item goes straight to
+  // native. but the document autosaves in place, and updateChangeCount marks it
+  // dirty without touching a single character of the buffer. so: mark it dirty,
+  // make the hook return a sentinel, and watch the file.
+  //
+  // it only ever runs against a document under the scratch directory, and it
+  // puts the file back byte for byte whether it passes or fails.
+  function saveWriteProbe() {
+    const path = Q.doc.path();
+    if (!path) return { ok: false, detail: "no document open" };
+    if (!TMP || path.indexOf(TMP + "/") !== 0) {
+      return { ok: false, detail: "refusing: " + path + " is not under " + TMP };
+    }
+    const sentinel = "quire-save-probe-" + Date.now().toString(36) + "\n";
+    let original = null, hit = false;
+    const restore = () => {
+      Q.guard._force = null;
+      Q.guard.ack();
+      return Q.shellIn(`cat > ${Q.sh(path)}`, original == null ? "" : original)
+        .then(() => {
+          try { window.File.reloadContent(original, { fromDiskChange: true }); } catch (_) {}
+          try { window.File.updateChangeCount(window.File.ChangeType.NSChangeCleared); } catch (_) {}
+        })
+        .then(() => Q.guard.snapshot(path));
+    };
+
+    return Q.guard.readFile(path)
+      .then((orig) => {
+        original = orig;
+        Q.guard._force = sentinel;
+        // sync() pushes the buffer to the NSDocument, updateChangeCount marks it
+        // edited. neither of those touches a character of what is on screen.
+        try { window.File.sync(); } catch (_) {}
+        try { window.File.updateChangeCount(window.File.ChangeType.NSChangeDone); } catch (_) {}
+        return waitFor(() => Q.guard.readFile(path).then((txt) => txt === sentinel), 45000, 1000);
+      })
+      .then((got) => { hit = got; return restore(); }, (e) => restore().then(() => { throw e; }))
+      .then(() => Q.guard.readFile(path))
+      .then((back) => ({
+        ok: hit && back === original,
+        detail: (hit ? "the writer used the hook's string"
+                     : "no write in 45s: autosave did not fire, interception unverified") +
+                ", file " + (back === original ? "restored byte for byte" : "NOT RESTORED"),
+      }));
+  }
+
+  // the whole point of the pass, end to end, on a real document.
+  //
+  // dirty the buffer without touching disk, then have a shell write the file the
+  // way an agent would, then wait for the poller. what has to be true after
+  // that: the buffer still holds the unsaved edit, the bar says conflict, and a
+  // save at that moment hands native the bytes that landed rather than ours.
+  //
+  // it dirties the open document, so it is behind the same marker file as the
+  // other destructive probe and refuses to run outside the scratch directory.
+  function conflictProbe() {
+    const path = Q.doc.path();
+    if (!TMP || !path || path.indexOf(TMP + "/") !== 0) {
+      return { ok: false, detail: "refusing: " + path + " is not under " + TMP };
+    }
+    const theirs = "their version, written by somebody else\n";
+    const mine = "\n\nmy unsaved edit\n";
+    let original = null;
+
+    const restore = () => Q.shellIn(`cat > ${Q.sh(path)}`, original == null ? "" : original)
+      .then(() => {
+        Q.guard.state.conflict = null;
+        try {
+          window.File.reloadContent(original, { fromDiskChange: true });
+          window.File.updateChangeCount(window.File.ChangeType.NSChangeCleared);
+        } catch (_) {}
+        Q.guard.hideBar();
+      })
+      .then(() => Q.guard.snapshot(path));
+
+    return Q.guard.readFile(path)
+      .then((orig) => {
+        original = orig;
+        try {
+          window.File.reloadContent(orig + mine, {});
+          window.File.updateChangeCount(window.File.ChangeType.NSChangeDone);
+        } catch (e) { throw new Error("could not dirty the buffer: " + e.message); }
+        return Q.shellIn(`cat > ${Q.sh(path)}`, theirs);
+      })
+      .then(() => waitFor(() => !!Q.guard.state.conflict, 14000, 600))
+      .then((saw) => {
+        const bar = document.querySelector("#q-guardbar.q-open");
+        const kind = bar ? bar.dataset.kind : "(no bar)";
+        const buf = Q.guard.expected() || "";
+        const kept = buf.indexOf("my unsaved edit") !== -1;
+        const held = Q.guard.why(buf);
+        const ok = saw && kind === "conflict" && kept &&
+                   !!held && held.kind === "conflict" && held.text === theirs;
+        return restore().then(() => ({
+          ok: ok,
+          detail: (saw ? "poller caught it" : "poller MISSED it") +
+                  ", bar " + kind +
+                  ", buffer " + (kept ? "kept my edit" : "LOST my edit") +
+                  ", a save would write " +
+                  (held && held.text === theirs ? "their bytes, not mine" : "OURS"),
+        }));
+      }, (e) => restore().then(() => { throw e; }));
+  }
+
+  // the other half of the same question, for when autosave never fires.
+  //
+  // it arms three things and stops: the file's original bytes are copied to
+  // <file>.orig, the buffer gets a marker that is not on disk, and the hook is
+  // made to return a sentinel. then whoever is driving quits the app and reads
+  // the file, and the answer is which of three things is in it:
+  //
+  //   the sentinel  the native writer uses what File.getContent hands back
+  //   the marker    a write happened and went round the hook
+  //   neither       quitting does not write at all
+  //
+  // it leaves the document dirty on purpose, which is why it is behind its own
+  // marker file and refuses to run on anything outside the scratch directory.
+  function saveArmProbe() {
+    const path = Q.doc.path();
+    if (!TMP || !path || path.indexOf(TMP + "/") !== 0) {
+      return { ok: false, detail: "refusing: " + path + " is not under " + TMP };
+    }
+    const sentinel = "quire-save-probe-sentinel\n";
+    return Q.guard.readFile(path).then((orig) => {
+      const body = orig == null ? "" : orig;
+      return Q.shellIn(`cat > ${Q.sh(path + ".orig")}`, body).then(() => {
+        Q.guard.ack();
+        Q.guard._force = sentinel;
+        try {
+          window.File.reloadContent(body + "\n<!-- quire probe marker -->\n", {});
+          window.File.sync();
+          window.File.updateChangeCount(window.File.ChangeType.NSChangeDone);
+        } catch (e) { return { ok: false, detail: "could not dirty the buffer: " + e.message }; }
+        return { ok: true, detail: "armed · buffer holds a marker, the hook returns a sentinel, " +
+                                   "original saved beside it as .orig" };
+      });
+    });
   }
 
   function suite() {
@@ -261,6 +445,275 @@
 
       .then(() => check("git", () =>
         Q.git.status().then((g) => ({ ok: true, detail: g ? g.branch + " +" + g.dirty : "not a repo" }))))
+
+      // ---- pass 2: the file guard ------------------------------------------
+      //
+      // reading a file and writing it back has to be byte exact or nothing
+      // downstream means anything, so that is what gets proven first, with a
+      // hash, against a file this stage made itself.
+      .then(() => check("diskRead", () => {
+        const f = t("read.md");
+        const body = "# read back\n\n- one\n- two\n\ntrailing spaces here   \nand a tab\there\n";
+        return Q.shellIn(`cat > ${Q.sh(f)}`, body)
+          .then(() => Q.guard.readFile(f))
+          .then((text) =>
+            Q.shell(`shasum -a 256 ${Q.sh(f)} | cut -d' ' -f1`).then((disk) =>
+              Q.shellIn("shasum -a 256 | cut -d' ' -f1", text == null ? "" : text).then((back) => ({
+                ok: text === body && !!disk.out && disk.out === back.out,
+                detail: (text === body ? "identical" : "DIFFERS") + ", sha " +
+                        (disk.out === back.out ? "matches disk" : disk.out.slice(0, 12)),
+              }))));
+      }))
+
+      // the watcher's whole job is noticing a file moved. mtime has one second
+      // resolution on some filesystems, so size is checked too, which is what
+      // catches an agent rewriting a file twice inside the same second.
+      .then(() => check("diskWatch", () => {
+        const f = t("watch.md");
+        return Q.shellIn(`cat > ${Q.sh(f)}`, "one\n")
+          .then(() => Q.guard.stat(f))
+          .then((before) =>
+            Q.shellIn(`cat > ${Q.sh(f)}`, "one\ntwo\n")
+              .then(() => Q.guard.stat(f))
+              .then((after) => ({
+                ok: !!before && !!after &&
+                    (after.mtime !== before.mtime || after.size !== before.size) &&
+                    after.size === 8,
+                detail: before && after
+                  ? before.size + "b -> " + after.size + "b, mtime " +
+                    (after.mtime === before.mtime ? "same second" : "moved")
+                  : "no stat",
+              })));
+      }))
+
+      // the save guard is a diff, so the diff is what gets tested: a file that
+      // round trips has to come back clean, and one that does not has to come
+      // back with the lines named.
+      .then(() => check("saveDiff", () => {
+        const same = t("same.md"), diff = t("diff.md");
+        const body = "# title\n\nplain paragraph.\n";
+        return Q.shellIn(`cat > ${Q.sh(same)}`, body)
+          .then(() => Q.guard.diffAgainst(same, body, "disk", "save"))
+          .then((d0) => {
+            const clean = Q.guard.changedLines(d0);
+            return Q.shellIn(`cat > ${Q.sh(diff)}`, "a\nb\nc\nd\n")
+              .then(() => Q.guard.diffAgainst(diff, "a\nB\nc\nd\ne\n", "disk", "save"))
+              .then((d1) => {
+                const n = Q.guard.changedLines(d1);
+                return {
+                  ok: clean === 0 && n === 3 && /^@@ /m.test(d1),
+                  detail: "identical -> " + clean + " changed, two edits and an added line -> " + n,
+                };
+              });
+          });
+      }))
+
+      // and the model of what a save writes: getMarkdown plus the line ending
+      // and the final newline the host tracks per document. if this is wrong
+      // every file looks damaged and the warning becomes noise.
+      .then(() => check("saveModel", () => {
+        const exp = Q.guard.expected();
+        const st = Q.guard.state;
+        if (exp == null) return { ok: false, detail: "expected() gave nothing" };
+        const p = st.phantom;
+        return {
+          ok: typeof exp === "string" && !!st.path && !!p,
+          detail: st.path
+            ? Q.doc.name() + ": " + exp.length + " bytes out, " +
+              (p ? (p.big ? "too big to check"
+                          : p.count + " line(s) rewritten by the writer alone" +
+                            (p.lines.length ? " at " + p.lines.join(",") : "")) : "unmeasured")
+            : "no document open",
+        };
+      }))
+
+      // the hook itself. this is the handler native calls to ask for the bytes
+      // it is about to write, so what it hands back is the file. it must always
+      // hand back a string, synchronously, and it must hand back the file's own
+      // bytes when it is holding a save.
+      .then(() => check("saveHook", () => {
+        const h = Q.guard._handler;
+        if (typeof h !== "function") return { ok: false, detail: "not installed" };
+        let got = null, calls = 0;
+        h(false, (v) => { calls++; got = v; });
+        const passthrough = got;
+        const sentinel = "quire-selftest-sentinel\n";
+        Q.guard._force = sentinel;
+        h(false, (v) => { calls++; got = v; });
+        Q.guard._force = null;
+        return {
+          ok: calls === 2 && typeof passthrough === "string" &&
+              passthrough === Q.guard.expected() && got === sentinel,
+          detail: calls + " synchronous answers, pass-through " +
+                  (passthrough === Q.guard.expected() ? "matches the buffer" : "DIFFERS") +
+                  ", substitution " + (got === sentinel ? "honoured" : "IGNORED"),
+        };
+      }))
+
+      // the host has exactly one confirm() and it is its external-change
+      // handler, which raises a modal over the document whenever an agent
+      // rewrites a file you have unsaved edits in. a modal in this app blocks
+      // the app and everything talking to it, so it must not exist.
+      .then(() => check("noHostModal", () => {
+        const swapped = window.confirm !== window.__quireConfirm;
+        const answer = window.confirm("File content is changed by external applications.");
+        return {
+          ok: swapped && answer === false && typeof window.__quireConfirm === "function",
+          detail: swapped ? "host confirm answered “keep the buffer” without drawing"
+                          : "NOT suppressed",
+        };
+      }))
+
+      // the hull of a change. this is what "outside the part you edited" is
+      // measured with, so it gets its own stage with hand-made inputs rather
+      // than being inferred from whatever document happens to be open.
+      .then(() => check("editSpan", () => {
+        const sp = Q.guard.span;
+        const cases = [
+          ["same", sp("a\nb\nc\n", "a\nb\nc\n"), null],
+          ["one line", sp("a\nb\nc\nd\n", "a\nB\nc\nd\n"), { from: 1, to: 1, delta: 0 }],
+          ["insert two", sp("a\nb\n", "a\nX\nY\nb\n"), { from: 1, to: 2, delta: 2 }],
+          ["delete one", sp("a\nb\nc\n", "a\nc\n"), { from: 1, to: 1, delta: -1 }],
+          ["last line", sp("a\nb\nc\n", "a\nb\nC\n"), { from: 2, to: 2, delta: 0 }],
+        ];
+        const bad = cases.filter(([, got, want]) => {
+          if (want === null) return got !== null;
+          return !got || got.from !== want.from || got.to !== want.to || got.delta !== want.delta;
+        }).map(([n]) => n);
+        return { ok: !bad.length,
+                 detail: bad.length ? "wrong: " + bad.join(", ") : cases.length + " spans" };
+      }))
+
+      // and the decision itself. a clean save has to be silent, a normal edit
+      // has to be silent, a page moving in one tick has to be held, and a file
+      // that changed on disk has to be held with its own bytes handed back.
+      .then(() => check("guardHold", () => {
+        const path = Q.doc.path();
+        const st = Q.guard.state;
+        if (!path || !st.disk || typeof st.disk.text !== "string") {
+          return { ok: false, detail: "no snapshot for " + path };
+        }
+        const base = st.disk.text;
+        const L = base.split("\n");
+        if (L.length < 24) return { ok: false, detail: "document too short to test on" };
+        const at = (i, v) => { const c = L.slice(); c[i] = v; return c.join("\n"); };
+
+        const clean = Q.guard.why(base);
+        const narrow = Q.guard.why(at(6, L[6] + " x"));
+        const bigLines = L.slice();
+        for (let i = 4; i < 20; i++) bigLines[i] = "rewritten " + i;
+        const big = Q.guard.why(bigLines.join("\n"));
+
+        st.conflict = { text: "theirs\n", mtime: 1, size: 7 };
+        const clash = Q.guard.why(base);
+        st.conflict = null;
+
+        const ok = clean === null && narrow === null &&
+                   !!big && big.kind === "wide" && big.text === base &&
+                   !!clash && clash.kind === "conflict" && clash.text === "theirs\n";
+        return { ok: ok, detail: "clean " + (clean === null ? "silent" : clean.kind) +
+                 ", one line " + (narrow === null ? "silent" : narrow.kind) +
+                 ", sixteen lines " + (big ? big.kind : "silent") +
+                 ", disk moved " + (clash ? clash.kind : "silent") };
+      }))
+      // put the state back: the stage above widened the hull and armed `wide`
+      .then(() => Q.guard.snapshot(Q.doc.path()))
+
+      // stickies. the file, the frontmatter and both pointers, in a scratch
+      // directory so a test run never leaves a note in the real one.
+      .then(() => check("sticky", () => {
+        const dir = t("stickies");
+        const real = Q.sticky.dirNow();
+        Q.sticky._useDir(dir);
+        return Q.sticky.create({ session: { id: "0000-test", cwd: "/tmp", window: "w: x", how: "test" },
+                                 body: "note body" })
+          .then((r) =>
+            Q.shell(
+              `cat ${Q.sh(r.path)}; echo "--"; readlink ${Q.sh(dir + "/latest.md")}; ` +
+              `echo "--"; readlink ${Q.sh(dir + "/by-session/0000-test.md")}`
+            ).then((s) => {
+              Q.sticky._useDir(real);
+              const parts = s.out.split("\n--\n");
+              const head = parts[0] || "";
+              const ok =
+                /^---\n/.test(head) &&
+                /\nkind: sticky\n/.test(head) &&
+                head.indexOf('window: "w: x"') !== -1 &&      // the colon survived quoting
+                head.indexOf('session: "0000-test"') !== -1 &&
+                head.indexOf("note body") !== -1 &&
+                (parts[1] || "").trim() === r.path &&
+                (parts[2] || "").trim() === r.path &&
+                Q.sticky.isSticky(r.path) === false;           // dir is back to the real one
+              return { ok: ok, detail: r.path.split("/").pop() + ", latest + by-session both point at it" };
+            }), (e) => { Q.sticky._useDir(real); throw e; });
+      }))
+
+      // the session resolver, run the way the app runs it: the copy inside the
+      // bundle, through the same shell everything else uses.
+      .then(() => check("qsession", () => {
+        const bin = quireFile("../qsession/qsession.sh");
+        return Q.shell(`${Q.sh(bin)} --newest 2>&1 | head -1`).then((r) =>
+          Q.shell(`${Q.sh(bin)} --list 2>/dev/null | wc -l`).then((l) => {
+            const f = (r.out || "").split("\t");
+            const uuid = /^[0-9a-f-]{20,}$/i.test(f[0] || "");
+            const wins = parseInt(l.out, 10) || 0;
+            return {
+              ok: uuid && (f[3] || "").trim() === "newest",
+              // the window count is the interesting number, not a pass or a
+              // fail: zero means the app has no Screen Recording permission and
+              // every title comes back nil, which is why newest-writer exists.
+              detail: (uuid ? f[0].slice(0, 8) + " · " + (f[1] || "no cwd") : "no session: " + r.out) +
+                      " · " + wins + " terminal window(s) visible to the app",
+            };
+          }));
+      }))
+
+      // grabbing the last command. run something real, then check the block it
+      // would insert, fence length included: output with backticks in it needs a
+      // longer fence or the block ends inside itself.
+      .then(() => check("grab", () => {
+        Q.ui.showPanel("terminal");
+        return Q.term.run("printf 'a\\n```\\nb\\n'").then(() => {
+          const r = Q.grab.lastRun();
+          if (!r) return { ok: false, detail: "nothing to grab" };
+          const b = Q.grab.block(r.cmd, r.out);
+          const lines = b.split("\n");
+          // the output has a bare ``` in it, so a naive count of fence-shaped
+          // lines finds three. the two that matter are the first and the last.
+          const first = lines[2], last = lines[lines.length - 2];
+          // a command with backticks in it cannot be inline code as it stands:
+          // the caption escapes them, which is why this compares against the
+          // escaped form rather than against the command
+          const caption = "`" + r.cmd.replace(/`/g, "’") + "`";
+          return {
+            ok: lines[0] === caption && first === "````" && last === "````" &&
+                b.indexOf("\na\n```\nb\n") !== -1,
+            detail: "caption escaped, " + first.length + "-backtick fence around " +
+                    (r.out ? r.out.split("\n").length : 0) + " lines that contain a fence",
+          };
+        });
+      }))
+
+      // the one stage that makes the open document dirty. off unless
+      // ~/.quire-selftest-save exists, because it is the only way to find out
+      // whether the native writer actually uses what the hook hands it, and
+      // finding out means letting it write.
+      .then(() => (SAVE_PROBE && !QUIT_PROBE ? check("conflict", conflictProbe)
+                              : check("conflict", () => ({
+                                  ok: true,
+                                  detail: "skipped · touch ~/.quire-selftest-save to run it",
+                                }))))
+
+      .then(() => (QUIT_PROBE ? check("saveWrite", saveArmProbe)
+                 : SAVE_PROBE ? check("saveWrite", saveWriteProbe)
+                              : check("saveWrite", () => ({
+                                  ok: true,
+                                  detail: "skipped · touch ~/.quire-selftest-save to run it",
+                                }))))
+
+      // the scratch files this suite made, and only those: the prefix is quoted
+      // and the glob is outside the quotes, so an empty TMP cannot turn into /*
+      .then(() => (TMP ? Q.shell(`rm -rf ${Q.sh(t(""))}*`).catch(() => {}) : null))
 
       .then(() => {
         Q.ui.hidePanel();

@@ -48,14 +48,41 @@ echo "==> $NAME $VERSION"
 # quit a running copy so we are not editing a live bundle, and so --run opens
 # the build that was just made. the executable inside the bundle still carries
 # the base app's name, so `pgrep -x Quire` matches nothing and neither does
-# `quit app "Quire"` — both have to go through the bundle identifier.
-if pgrep -f "$INSTALL_DIR/$NAME.app/Contents/MacOS/" >/dev/null 2>&1; then
-  echo "==> quitting the running copy"
+# `quit app "Quire"`. both have to go through the bundle identifier.
+#
+# this used to be one osascript and a `|| true`, and that combination lied. an
+# unsaved document makes the quit raise a save sheet, the sheet makes osascript
+# come back with
+#
+#   0:38: execution error: Quire got an error: User cancelled. (-128)
+#
+# and the `|| true` swallowed it. the build then installed over the live bundle,
+# `open` on an already-running app did nothing, and the pid was the same before
+# and after: 21648 both times. a whole round of reading the selftest was reading
+# the old code's answers.
+#
+# so: ask nicely, then TERM it, then refuse to install rather than install over
+# something that is still running.
+RUNNING="$INSTALL_DIR/$NAME.app/Contents/MacOS/"
+alive() { pgrep -f "$RUNNING" >/dev/null 2>&1; }
+wait_gone() { for _ in $(seq 1 "$1"); do alive || return 0; sleep 0.5; done; ! alive; }
+
+if alive; then
+  echo "==> quitting the running copy (pid $(pgrep -f "$RUNNING" | tr '\n' ' '))"
   osascript -e "quit app id \"$BUNDLE_ID\"" >/dev/null 2>&1 || true
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    pgrep -f "$INSTALL_DIR/$NAME.app/Contents/MacOS/" >/dev/null 2>&1 || break
-    sleep 0.5
-  done
+  if ! wait_gone 10; then
+    echo "    it did not quit, sending TERM"
+    pkill -f "$RUNNING" || true
+    wait_gone 8 || true
+  fi
+  if alive; then
+    echo "" >&2
+    echo "$NAME is still running as pid $(pgrep -f "$RUNNING" | tr '\n' ' ')." >&2
+    echo "it is probably holding a modal save panel. installing over a live" >&2
+    echo "bundle silently does nothing, so this stops here instead." >&2
+    exit 1
+  fi
+  echo "    gone"
 fi
 
 rm -rf "$HERE/build"
@@ -160,6 +187,18 @@ plutil -replace LSEnvironment -json '{}' "$P"
 plutil -replace LSEnvironment.DYLD_INSERT_LIBRARIES \
   -string '@executable_path/../Frameworks/libquire_glass.dylib' "$P"
 
+# qsession resolves which claude code session a sticky note belongs to. it is a
+# swift binary plus a shell script rather than javascript because the only way to
+# read a window's title is CGWindowListCopyWindowInfo, and there is no node here
+# to call it from.
+QS="$HERE/native/qsession"
+swiftc -O "$QS/qwindows.swift" -o "$QS/qwindows" >/dev/null 2>&1 \
+  || { echo "    swiftc failed on qwindows.swift" >&2; exit 1; }
+mkdir -p "$TM/qsession"
+cp "$QS/qwindows" "$QS/qsession.sh" "$TM/qsession/"
+chmod +x "$TM/qsession/qwindows" "$TM/qsession/qsession.sh"
+echo "    qsession built"
+
 # ---- our source -------------------------------------------------------------
 echo "==> installing src"
 DEST="$TM/quire"
@@ -248,5 +287,7 @@ if [ "$DO_INSTALL" = "1" ]; then
   echo "    $INSTALL_DIR/$NAME.app"
 fi
 
-[ "$DO_RUN" = "1" ] && open "$INSTALL_DIR/$NAME.app"
+# -g: launched in the background, so a build never takes the keyboard away from
+# whoever is using the machine.
+[ "$DO_RUN" = "1" ] && open -g "$INSTALL_DIR/$NAME.app"
 echo "==> done"

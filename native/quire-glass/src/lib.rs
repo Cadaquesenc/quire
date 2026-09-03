@@ -1,4 +1,4 @@
-//! quire-glass — makes the host window translucent.
+//! quire-glass: makes the host window translucent.
 //!
 //! loaded with DYLD_INSERT_LIBRARIES, declared in the app's Info.plist. the app
 //! is signed with the hardened runtime, so this only loads because the bundle
@@ -6,7 +6,7 @@
 //!
 //! the window is made non-opaque and given a clear background, the web view is
 //! told to stop painting its own, and the blur behind the glass comes from
-//! CGSSetWindowBackgroundBlurRadius — a private CoreGraphics call, and the only
+//! CGSSetWindowBackgroundBlurRadius, a private CoreGraphics call and the only
 //! way to set a blur radius on macos. AppKit's NSVisualEffectView has fixed
 //! materials and cannot do it. this is the same route ghostty takes.
 //!
@@ -15,7 +15,8 @@
 
 #![allow(non_snake_case, non_upper_case_globals)]
 
-use std::ffi::{c_char, c_int, c_void, CString};
+use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::sync::Mutex;
 
 type Id = *mut c_void;
 type Sel = *const c_void;
@@ -83,6 +84,46 @@ unsafe fn responds(obj: Id, s: Sel) -> bool {
     let f: extern "C" fn(Id, Sel, Sel) -> bool = std::mem::transmute(objc_msgSend as *const ());
     f(obj, sel("respondsToSelector:"), s)
 }
+unsafe fn send_isize_arg(obj: Id, s: Sel, a: isize) {
+    let f: extern "C" fn(Id, Sel, isize) = std::mem::transmute(objc_msgSend as *const ());
+    f(obj, s, a)
+}
+unsafe fn send_rect(obj: Id, s: Sel) -> Rect {
+    let f: extern "C" fn(Id, Sel) -> Rect = std::mem::transmute(objc_msgSend as *const ());
+    f(obj, s)
+}
+unsafe fn send_rect_bool(obj: Id, s: Sel, r: Rect, b: bool) {
+    let f: extern "C" fn(Id, Sel, Rect, bool) = std::mem::transmute(objc_msgSend as *const ());
+    f(obj, s, r, b)
+}
+
+/// NSRect. four doubles, which on arm64 is a homogeneous float aggregate and
+/// travels in v0..v3, so the plain objc_msgSend is the right entry point. the
+/// _stret variant does not exist on this architecture at all.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct Rect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+/// an objc string as a rust one. nil comes back empty rather than panicking,
+/// because a window with no title is the normal case for half the list.
+unsafe fn nsstring(obj: Id) -> String {
+    if obj.is_null() {
+        return String::new();
+    }
+    let p = {
+        let f: extern "C" fn(Id, Sel) -> *const c_char = std::mem::transmute(objc_msgSend as *const ());
+        f(obj, sel("UTF8String"))
+    };
+    if p.is_null() {
+        return String::new();
+    }
+    CStr::from_ptr(p).to_string_lossy().into_owned()
+}
 
 /// the web view paints an opaque background of its own. until that is switched
 /// off, a transparent window still looks solid. the modern and legacy views
@@ -112,6 +153,91 @@ unsafe fn clear_web_backgrounds(view: Id, depth: u32) {
     for i in 0..n {
         let child = send_usize(subviews, sel("objectAtIndex:"), i as usize);
         clear_web_backgrounds(child, depth + 1);
+    }
+}
+
+// ---- stickies ---------------------------------------------------------------
+//
+// a sticky note is the same app in a small window that stays on top. neither
+// half of that is reachable from javascript: NSWindow.level and the window frame
+// are AppKit, and there is no node here to bridge to them. so the dylib, which
+// is already walking every window twice a second, does it.
+//
+// how it knows which window: the document's own path. NSWindow keeps
+// representedFilename for a document window, which is the file itself and cannot
+// be confused with anything the user typed. the title is checked too, because a
+// window that has not finished loading has the name before it has the path.
+const STICKY_MARK: &str = "/.quire/stickies/";
+const STICKY_NAME: &str = "sticky-";
+
+/// NSFloatingWindowLevel. above normal windows, below the menu bar and panels.
+const FLOATING_LEVEL: isize = 3;
+/// NSWindowCollectionBehaviorCanJoinAllSpaces, so a note does not vanish when
+/// you switch desktops, which is most of what a note is for.
+const JOIN_ALL_SPACES: usize = 1 << 0;
+
+const STICKY_W: f64 = 380.0;
+const STICKY_H: f64 = 320.0;
+
+static SIZED: Mutex<Vec<c_int>> = Mutex::new(Vec::new());
+
+unsafe fn is_sticky(window: Id) -> bool {
+    let rf = sel("representedFilename");
+    if responds(window, rf) {
+        let p = nsstring(send(window, rf));
+        if p.contains(STICKY_MARK) {
+            return true;
+        }
+    }
+    let t = nsstring(send(window, sel("title")));
+    t.starts_with(STICKY_NAME) || t.contains(STICKY_MARK)
+}
+
+/// float it, and give it a small frame the first time it is seen. the frame is
+/// set once and never again: a note you dragged somewhere is a note that stays
+/// where you dragged it.
+unsafe fn sticky(window: Id, wid: c_int) {
+    let level = sel("level");
+    if responds(window, level) {
+        let cur = send_isize(window, level);
+        if cur != FLOATING_LEVEL {
+            send_isize_arg(window, sel("setLevel:"), FLOATING_LEVEL);
+        }
+    }
+    let cb = sel("setCollectionBehavior:");
+    if responds(window, cb) {
+        let f: extern "C" fn(Id, Sel, usize) = std::mem::transmute(objc_msgSend as *const ());
+        f(window, cb, JOIN_ALL_SPACES);
+    }
+
+    let mut seen = match SIZED.lock() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    if seen.contains(&wid) {
+        return;
+    }
+    seen.push(wid);
+    let n = (seen.len() as f64 - 1.0) % 6.0;
+    drop(seen);
+
+    let screen = send(window, sel("screen"));
+    if screen.is_null() || !responds(screen, sel("visibleFrame")) {
+        return;
+    }
+    let vis = send_rect(screen, sel("visibleFrame"));
+    let r = Rect {
+        x: vis.x + vis.w - STICKY_W - 40.0 - n * 26.0,
+        y: vis.y + vis.h - STICKY_H - 40.0 - n * 26.0,
+        w: STICKY_W,
+        h: STICKY_H,
+    };
+    if responds(window, sel("setFrame:display:")) {
+        send_rect_bool(window, sel("setFrame:display:"), r, true);
+        // and force the draw. the window is usually still in the background when
+        // this runs, and a background window is not asked to repaint, so the
+        // titlebar keeps a strip of whatever size it used to be.
+        send(window, sel("display"));
     }
 }
 
@@ -150,6 +276,9 @@ unsafe fn glass(window: Id) {
     let wid = send_isize(window, sel("windowNumber")) as c_int;
     if wid > 0 {
         CGSSetWindowBackgroundBlurRadius(CGSMainConnectionID(), wid, BLUR_RADIUS);
+        if is_sticky(window) {
+            sticky(window, wid);
+        }
     }
 }
 

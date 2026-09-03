@@ -2,3 +2,4 @@ build/
 native/*/target/
 brand/icon-1024.png
 vendor/
+native/qsession/qwindows

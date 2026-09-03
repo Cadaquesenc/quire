@@ -74,8 +74,12 @@
     const base = inRoot ? root : dir;
     const rel = inRoot ? Q.rel(dir, root) : "";
 
+    // File.isEdited does not exist. it never did: the property this used to read
+    // is undefined on every build, so the dirty dot has never once appeared. the
+    // real accessor is a method, and on macos it goes over the bridge's
+    // synchronous channel to ask the NSDocument.
     let edited = false;
-    try { edited = !!(window.File && window.File.isEdited); } catch (_) {}
+    try { edited = !!(Q.guard && Q.guard.dirty && Q.guard.dirty()); } catch (_) {}
 
     // the mode block, lualine's leftmost segment. source mode and read-only are
     // the only two states this editor really has, so it says which one.

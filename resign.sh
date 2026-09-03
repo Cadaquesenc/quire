@@ -1,7 +1,7 @@
 #!/bin/bash
 # re-seal a modified Typora bundle.
 #
-# editing anything under Contents/Resources invalidates the code signature —
+# editing anything under Contents/Resources invalidates the code signature.
 # the bundle is signed with a hardened runtime, so the seal covers resources,
 # not just the binary. macos then refuses to launch it.
 #
@@ -13,7 +13,7 @@
 #   "mapping process and mapped file (non-platform) have different Team IDs"
 #
 # so: sign inside-out, everything ad-hoc, and grant
-# disable-library-validation. the app's original entitlements are preserved —
+# disable-library-validation. the app's original entitlements are preserved:
 # it needs allow-jit and allow-unsigned-executable-memory for its web view.
 set -euo pipefail
 
@@ -49,11 +49,14 @@ for fw in "$APP"/Contents/Frameworks/*.framework; do
   sign "$fw"
 done
 
-# any loose dylibs / mach-o helpers under Resources (fileop, etc.)
+# any loose dylibs / mach-o helpers under Resources (fileop, qwindows, etc.).
+# a helper we built ourselves has to be sealed too: the app signature covers the
+# resources, so an unsigned mach-o under Resources is a broken seal, not a file
+# that happens to be there.
 while IFS= read -r bin; do
   echo "    $(basename "$bin")"
   sign "$bin"
-done < <(find "$APP/Contents" -type f \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null)
+done < <(find "$APP/Contents" -type f \( -name "*.dylib" -o -name "*.so" -o -name "qwindows" \) 2>/dev/null)
 
 echo "==> signing app"
 sign "$APP"

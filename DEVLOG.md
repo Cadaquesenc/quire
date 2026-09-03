@@ -189,3 +189,291 @@ last frame it painted, and macos stops the web view painting once the window is
 occluded. 70 captures over 28 seconds while the suite drove the sidebar open and
 shut: 58 of them byte-identical, not one showing the sidebar. so the sidebar and
 the viewer are proven at the dom level and unproven as pixels.
+
+---
+
+## 2026-09-03 · the save bug was not the bug
+
+pass two. live reload, a guard on the save, sticky notes, and one key that pulls
+the last command into the document.
+
+### the thing i was wrong about, and the measurement that killed it
+
+i started this pass believing the editor mangles files on its own. it is written
+down twice, in INTERNALS and in yesterday's entry: the app does not hold a
+document as text, it parses markdown into a node tree and serialises the tree
+back out on save, so a round trip is not one. `.txt` is kept out of the editor
+for exactly that reason and that decision still stands.
+
+so the save guard was built to measure the damage. serialise the buffer the
+instant a file loads, before a keystroke, diff that against the bytes on disk,
+and whatever falls out is what the writer will do to you unasked. cheap, and the
+answer is known at load time, so the decision at save time is a boolean.
+
+then i measured it. 43 lines written specifically to break it: setext headings,
+a ragged table, a four-space indented code block, `+` bullets, `1)` numbering,
+`___triple underscores___`, escaped stars, a two-space hard break, raw html, a
+reference link, tasks.
+
+**1053 bytes in. 1053 bytes out. zero lines changed.**
+
+the writer keeps the source of every block nobody has been inside. open a file,
+save it untouched, and it is byte identical. the guard i had written would have
+sat there for the rest of its life reporting zero.
+
+so what is the bug the owner reported as "when saving it goes a bit haywire"?
+almost certainly the other one: an agent rewrites the file, the buffer is ten
+minutes stale, and the next save puts the old version back over it. that is
+problem one, not problem two, and it does not need a parser to happen.
+
+the guard got rebuilt around what is actually true: **a save may only change what
+you changed**. the line ranges you edit are tracked while you type, on the same
+serialisation the status bar already asks for. at save time the bytes about to be
+written are compared against the bytes on disk, and anything reaching outside the
+ranges you touched holds the write.
+
+four things hold it now: the file moved on disk under unsaved edits, the save
+reaches past what you edited, one tick of typing moved eight lines when a
+keystroke moves one, or the file genuinely did not round trip on the way in. the
+last one is still measured, because it is free and because it was worth knowing
+the answer is normally zero.
+
+honest limit, and it is a real one: an edit tick folds your keystroke and
+anything else that moved in the same 400ms into one range, so a reformat landing
+on the same tick as a keystroke is inside the hull and passes. that case is what
+the eight-line rule is for. and the hull is contiguous, not a union, so editing
+line 5 and line 300 leaves everything between them unguarded. that is the wrong
+answer in the safe direction: it warns less, never more.
+
+### where a save actually comes from, and how i proved it
+
+the write goes through one function. `bridge.registerHandler("File.getContent")`
+is the handler native calls to ask javascript for the bytes, and its callback is
+the file. that is the whole interception surface, and it is the last point on
+this side that sees the content.
+
+the handler has to be replaced rather than wrapped, because `registerHandler`
+writes into a closure-local map in index.html with no getter. so the host's body
+is reproduced faithfully and a decision is added. the decision is synchronous by
+construction, no promise and no shell, because a handler that waits here leaves
+native waiting for content mid-save, which is worse than the bug.
+
+"cancel" is: hand back the bytes the file already has. a save that writes the
+file's own content over itself changes nothing, and your edits stay in the
+window.
+
+which left the question that mattered: **does native actually use what the hook
+returns, or does it write from a copy it already has?** i could not press ⌘S. it
+is an NSDocument, the menu item goes straight to native, and there is no
+javascript entry point to the save at all.
+
+first attempt: `autosavesInPlace` is in the binary, so mark the document dirty
+from javascript and wait for autosave. `File.sync()` then
+`updateChangeCount(NSChangeDone)`, poll the file.
+
+45 seconds. nothing. autosave never fired.
+
+second attempt, and this one is decisive. arm three things and quit the app:
+copy the file's bytes aside, put a marker in the buffer that is not on disk, and
+make the hook return a sentinel that is neither. then `quit app id`, and read the
+file. three outcomes, all distinguishable:
+
+```
+the sentinel   native uses what File.getContent returns
+the marker     a write happened and went round the hook
+neither        quitting does not write at all
+```
+
+the file came back 26 bytes long, containing exactly `quire-save-probe-sentinel`.
+the hook is authoritative. cancel really cancels.
+
+it also answers a thing from yesterday. the save panel that deadlocked the last
+build was an *Untitled* document. a document with a path is written silently on
+quit, no sheet, no question.
+
+### the dirty dot that had never once appeared
+
+`90-boot.js` read `window.File.isEdited` to decide whether to draw the dot next
+to the filename. there is no such property. grep the host bundle for `isEdited`
+and you get `isDocumentEdited`, a method, and nothing else. so the expression was
+`!!undefined` on every build since it was written and the dot has never rendered.
+
+it is worse than a missing dot, because the reload guard needs the same answer:
+reloading a file over unsaved edits is exactly the thing it exists to prevent.
+
+and `isDocumentEdited()` on macos is `bridge.callSync`, which is
+`prompt("__bridge__", ...)`, the same window.prompt the host hijacked and whose
+else branch returns null. if that channel ever answers null the host reads it as
+"not edited". so the guard does not trust it alone: it also compares the
+serialisation now against the serialisation at load. if they differ there are
+edits in the buffer, whatever the document says about itself.
+
+### the session behind a sticky, and the permission that is not there
+
+stickies carry which claude code session was in front when you made them. the
+resolver was ported from the scratchpad rather than rewritten, and the four
+mistakes already burned into its comments stayed burned in: match the `aiTitle`
+record and not a substring, read `cwd` and `sessionId` out of the transcript and
+never off the directory name, filter the window list by owner, and `sed -n 1p`
+instead of `head -1` because pipefail plus head is exit 141.
+
+from my shell it resolves perfectly. `qsession` printed
+`957a300b-a2d1-4643-9bc1-7e65192bb584` for the window that is driving this, which
+is the same uuid as the scratchpad path it is writing into.
+
+from inside quire it finds **zero terminal windows**.
+
+`kCGWindowName` needs Screen Recording permission. my terminal has it. quire does
+not, and asking for it means a system dialog in front of whoever is typing, which
+is not a thing this app is going to do for a sticky note. so the resolver falls
+through to newest-writer-wins, which is the fallback the plan already allowed for
+and which is the right answer anyway: the session that just asked for a note is
+the session that wrote last. the frontmatter records which route was used, so a
+note never claims to know something it guessed.
+
+### floating a window from a dylib, and how to check it without touching it
+
+`NSWindow.level` and the window frame are AppKit. there is no node here, so
+javascript cannot reach either. the glass dylib is already walking every window
+twice a second, so it does the rest: if a window's `representedFilename` is under
+`~/.quire/stickies`, it goes to `NSFloatingWindowLevel`, joins all spaces, and
+gets a 380 by 320 frame once and never again, so a note you drag somewhere stays
+where you dragged it.
+
+`representedFilename` and not the title, because the title is whatever the host
+feels like putting there and the path is the document.
+
+checking it is the good part. `kCGWindowLayer` in the window list *is* the window
+level as the window server sees it, and `kCGWindowBounds` is the frame. so
+`qwindows` grew two columns and the check is a grep:
+
+```
+25937  Quire  sticky-2026-09-03-060000.md  3  988,40,380,320
+25934  Quire  quire-scratch.md             0  0,8,1400,865
+```
+
+layer 3, 380 wide, and the ordinary document window untouched at layer 0. no
+focus stolen, no screenshot needed to believe it.
+
+one snag worth writing down: the first capture of a sticky had a dark unpainted
+strip across the top right of the titlebar. the dylib resizes a window that is
+still in the background, and a background window is not asked to repaint, so the
+titlebar kept a strip of the size it used to be. `setFrame:display:` was already
+passing YES; the fix was an explicit `display` after it.
+
+### the modal i built the whole pass to avoid, raised by the host, at me
+
+the live reload worked first try. wrote over the open file from a shell, waited
+eight seconds, photographed the window: new content on screen, toast in the
+corner saying `reloaded from disk`.
+
+and a dialog in the middle of it.
+
+> File content is changed by external applications. Reload content from disk ?
+> You could undo this operation later via `Edit` → `Undo`.
+
+that is the host's own external-change handler. it is one line:
+
+```js
+File.isDocumentEdited() && !confirm("File content is changed…")
+  || bridge.callHandler("document.refreshContentFromDisk")
+```
+
+and the reason it fired is my fault twice over. `File.reloadContent` registers an
+undo command, which marks the NSDocument dirty. so my reload of a *clean* buffer
+left the titlebar saying Edited, and then the host's presenter came along, read
+that flag, and asked the question. a modal, over the document, raised by the app
+at itself, in the exact scenario this pass exists for.
+
+two fixes. `updateChangeCount(NSChangeCleared)` right after the reload, so a file
+nobody edited is not marked edited. and the confirm goes away: there is **exactly
+one** `confirm(` in the entire host bundle and this is it, so it is answered
+"keep what is in the buffer" without ever being drawn, and quire's bar handles
+the change instead. one call site is what makes that safe rather than reckless.
+
+the question it asked was the wrong one anyway. reload or nothing, no way to see
+what changed, no way to keep both.
+
+### the conflict path, end to end, on a real document
+
+the last stage is the whole pass in one: dirty the buffer without touching disk,
+have a shell write the file the way an agent would, wait for the poller.
+
+```
+conflict: ok · poller caught it, bar conflict, buffer kept my edit,
+          a save would write their bytes, not mine
+```
+
+that is the bug the owner reported, reproduced deliberately and then not
+happening. the file came back byte identical afterwards.
+
+### the build told me it had restarted the app, again
+
+yesterday's entry ends with `build.sh` swallowing an osascript failure and
+installing over a live bundle. it was still doing it. now it asks nicely, waits
+five seconds, sends TERM, waits four more, and if the process is still there it
+**stops** rather than installing over it. an install over a running app is
+silent, and `open` on an already-running app does nothing, so the failure mode is
+a build that looks fine and changes nothing.
+
+`--run` uses `open -g` now too. a build should never take the keyboard.
+
+### small things that cost real time
+
+`$TMPDIR` is `/var/folders/...`, `/var` is a symlink to `/private/var`, and
+`File.filePath` reports the resolved one. the save probe compares the open
+document's path against the scratch directory before it will touch anything, and
+it refused its own file over exactly that. `cd "$TMPDIR" && pwd -P`.
+
+the fence a grabbed command goes into has to be longer than the longest run of
+backticks inside it. the test grabs a command whose output *contains* ```` ``` ````
+so the block has to open with four, and the naive way of counting fence-shaped
+lines in the result finds three of them, not two.
+
+### what i decided against
+
+no rewriting of the lines the writer changes. a surgical save that keeps your
+edits and puts everybody else's lines back is possible now that the hook is
+proven authoritative, and it is a bad idea: a bad merge is worse than a warning,
+and the warning already tells you exactly what it was going to do.
+
+no scraping a real terminal for the grab. the last command in ghostty lives in a
+pty this app has no handle on, and the routes to it are applescript at
+Terminal.app, which steals focus, or a screenshot and OCR. so the terminal it
+reads is quire's own, and there is a companion command that runs something and
+grabs it in one step, which is what you want most of the time anyway.
+
+no explicit file writing for stickies. they save through the same NSDocument
+everything else does, which given that autosave never fired in 45 seconds means
+they save when the window closes or the app quits, not as you type. that is worse
+than advertised and it is the one thing in this pass i would fix first.
+
+no asking for Screen Recording. the window-title route stays in the code because
+it works from a terminal and because it is how you would resolve a session from
+outside the app, but nothing prompts for it.
+
+### verified, and what is not
+
+34 selftest stages, 13 of them new, all passing, against a scratch document
+opened deliberately so nothing in a repo was ever open in the editor.
+
+proven with numbers rather than asserted: a file read back through the shell
+hashes the same as `shasum` on disk. a file that changes size inside one second
+is still detected, because size is checked as well as mtime. `diff` on identical
+input gives 0 changed lines and on two edits plus an addition gives 3. the save
+hook answers synchronously twice, hands back the buffer unchanged when it is
+happy, and hands back a substitute when it is not. a clean save is silent, a one
+line edit is silent, sixteen lines moving in one tick is held, and a file that
+moved on disk is held with its own bytes handed back. the host's confirm answers
+without drawing. an external rewrite over a clean buffer reloads in place with no
+dialog and the titlebar does not say Edited: 200 words became 49 without anybody
+touching the window. the sticky's frontmatter
+keeps a colon inside a quoted window title. both symlink pointers resolve to the
+note that made them.
+
+not verified: the guard has never held a save that a person actually pressed ⌘S
+for. everything about the hook is proven, including that native uses its return
+value, but the path from a keystroke to that handler is inference. the eight-line
+rule has never fired on a real reformat, because i could not make the writer do
+one. and the sticky's save-as-you-type is debounced and wired but never watched
+under a real hand, only reasoned about from the fact that autosave did not fire.
