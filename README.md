@@ -39,20 +39,44 @@ so it isn't a pandoc button. it's a shell.
 backlinks, tags, git, the file list, the terminal. all of it is `grep`, `find`
 and `git`, going out through a door built for one export format.
 
-## what it adds as of now
+## built for writing next to claude
 
-- **command palette** (`⌘⌥P`). 91 commands, searchable.
+most markdown editors assume nobody else touches your files. claude code rewrites
+them constantly, so quire is built around that.
+
+- **run a shell block.** put a `bash` block in a note, press run. it runs in the
+  sidebar terminal and the output folds back into the document underneath it.
+  no other markdown editor can do this, because no other one has a real shell.
+- **sticky notes claude can read** (`⌘⌥;`). a small note that floats over
+  everything, including your claude code windows. it's a plain `.md` on disk with
+  the session id in its frontmatter, so claude just reads the file. no plugin, no
+  integration, nothing to set up.
+- **it notices when claude edits the file you have open.** reloads if you haven't
+  touched it, and if you have, it asks instead of picking a winner.
+- **a save can only change what you changed.** if a save is about to rewrite lines
+  you never touched, it stops and shows you which.
+- **read a past session.** claude's transcripts are megabytes of unreadable json.
+  quire renders them as normal documents. 1,542 of them here, 1.0 GB, the biggest
+  47 MB.
+- **docs that admit they're stale.** flags the `.md` files that are older than the
+  code in their folder, and by how many commits.
+- **grab the last command** (`⌘⌥'`). pulls it and its output into the note as a
+  code block.
+
+## the rest
+
+- **command palette** (`⌘⌥P`). every command, searchable.
 - **shortcuts you can rebind.** click a row, press a key. typora on mac can't do
-  this at all.
-- **backlinks and tags.** write `[[a note]]` or `#tag` and it finds every mention
-  in the folder.
-- **git.** branch and unsaved count in the status bar. commit and diff from the
+  this at all. 39 of them.
+- **one sidebar** with files, backlinks, tags, git, terminal, sessions and docs.
+  each keeps its place when you switch away.
+- **backlinks and tags.** write `[[a note]]` or `#tag` and it finds every mention.
+- **git.** branch and unsaved count in the status bar, commit and diff from the
   palette.
 - **daily notes.** one per day, quick capture, templates.
-- **a file panel.** everything in the folder, filterable.
-- **a terminal.** a real shell, through that same door.
 - **20 text transforms.** sort, dedupe, turn a selection into a table.
-- **a status bar.** file, git, words, tasks, reading time.
+- **other files open read-only.** a `.js` file put through a markdown parser and
+  saved is destroyed, so quire shows it and refuses to write it.
 
 plus the five that were already in there, now switched on.
 
@@ -87,6 +111,20 @@ fonts are Inter and Victor Mono, both openly licensed. see `src/FONTS.md`.
 no filesystem except through that one door. no new menu items, since the app can
 only switch on menus it already has. and the markdown engine can't be replaced,
 which is why this is a fork and not a rewrite.
+
+the window frame can't be rounded either. `NSVisualEffectView` ships fixed
+materials with no radius, so the rounding stops one layer in.
+
+## honest about what's tested
+
+there's a self test in the app, 44 stages, all passing. it proves the things that
+would quietly destroy a file: that the read-only pane hands back the same bytes
+that are on disk, that nothing in it can write, that a shell block never runs on
+its own, and that a save that reaches outside your edits gets held.
+
+what it does not prove is anything involving a pointer. every hover and press
+state is drawn but has never been clicked, because clicking means taking the
+keyboard off whoever is using the machine.
 
 ## more detail
 
