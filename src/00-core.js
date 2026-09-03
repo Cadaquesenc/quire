@@ -209,6 +209,12 @@ window.Q = (function () {
     // goes straight to disk.
     saveGuard: "block",
     stickyDir: "~/.quire/stickies",
+    // a code block in a document is somebody else's text. "risky" asks before
+    // anything on the destructive list, "always" asks before every run. there
+    // is deliberately no "never": running is a human action, every time.
+    runConfirm: "risky",
+    transcriptDir: "~/.quire/transcripts",
+    staleDays: 1,               // a doc is only behind if it is behind by this
   };
 
   let prefs = null;
@@ -307,6 +313,21 @@ window.Q = (function () {
     save() {
       try { window.File.sync(); } catch (_) {}
     },
+  };
+
+  // $HOME, asked for once. javascript here has no environment: no node, no
+  // process.env, and `~` is a shell thing, not a path thing. so anything that
+  // wants a path under home has to go and ask.
+  let homeResolved = null;
+  Q.home = function () {
+    if (homeResolved) return Promise.resolve(homeResolved);
+    return Q.shell('printf %s "$HOME"', "/").then((r) => (homeResolved = r.out || ""));
+  };
+  Q.homeNow = () => homeResolved || "";
+  Q.expand = function (p) {
+    const raw = String(p == null ? "" : p);
+    if (raw.charAt(0) !== "~") return Promise.resolve(raw.replace(/\/+$/, ""));
+    return Q.home().then((h) => (h ? h + raw.slice(1) : raw).replace(/\/+$/, ""));
   };
 
   // the configured default, with ~ resolved once and remembered
@@ -410,6 +431,28 @@ window.Q = (function () {
     d = d || new Date();
     const p = (n) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+
+  Q.time = function (d) {
+    d = d || new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  };
+
+  // "3 days", "6 hours", "just now". used wherever a timestamp is only
+  // interesting as a distance from now, which is most places.
+  Q.ago = function (seconds) {
+    const s = Math.max(0, Math.round(Number(seconds) || 0));
+    if (s < 90) return "just now";
+    const mins = Math.round(s / 60);
+    if (mins < 90) return mins + (mins === 1 ? " minute" : " minutes");
+    const hrs = Math.round(mins / 60);
+    if (hrs < 36) return hrs + (hrs === 1 ? " hour" : " hours");
+    const days = Math.round(hrs / 24);
+    if (days < 45) return days + (days === 1 ? " day" : " days");
+    const months = Math.round(days / 30);
+    if (months < 24) return months + (months === 1 ? " month" : " months");
+    return Math.round(months / 12) + " years";
   };
 
   return Q;

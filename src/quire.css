@@ -1285,3 +1285,150 @@ body.q-sticky #write pre.md-meta-block {
   line-height: 1.35;
   margin-bottom: 8px;
 }
+
+/* ---- runnable code blocks --------------------------------------------------- *
+ * a layer of buttons over the fences rather than anything inside them. a <pre>
+ * in this editor is either contenteditable=false or a live CodeMirror, and a
+ * control put inside either one eventually gets handed to the markdown writer to
+ * serialise. the layer is fixed, ignores the pointer, and only its buttons take
+ * it back. */
+
+#q-run-layer {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  /* under the toast (60), the palette (70) and the modal (80), over the guard
+   * bar's 58. a button that floats over a dialog is a button you press by
+   * mistake, and this one runs a shell command. */
+  z-index: 55;
+}
+.q-run-btn {
+  position: fixed;
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 4px;
+  width: 62px; height: 21px;
+  padding: 0 8px;
+  border: 1px solid var(--q-line);
+  border-radius: 999px;
+  background: var(--q-e2);
+  color: var(--q-muted);
+  font: inherit; font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: default;
+  opacity: 0.32;
+  transition: opacity var(--q-fast) var(--q-ease), background var(--q-fast) var(--q-ease),
+              color var(--q-fast) var(--q-ease);
+}
+/* quiet until you go near it. a run button that shouts is a run button you press
+ * by accident, and this one runs a shell command. */
+#q-run-layer:hover .q-run-btn { opacity: 0.62; }
+.q-run-btn:hover {
+  opacity: 1;
+  background: var(--q-accent-soft);
+  color: var(--q-fg);
+  border-color: color-mix(in srgb, var(--q-accent) 55%, transparent);
+}
+.q-run-btn svg { flex: none; opacity: 0.8; }
+
+/* the confirm. the command in monospace is the whole point of the dialog: the
+ * question is not "are you sure", it is "did you read this". */
+.q-runask-cmd {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  max-height: 40vh; overflow: auto;
+  background: var(--q-e1);
+  border: 1px solid var(--q-line);
+  border-radius: var(--q-r2);
+  font-family: var(--q-mono); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+.q-runask-why { margin-bottom: 8px; font-size: 12.5px; color: #e0724f; }
+.q-runask-where { font-size: 11.5px; color: var(--q-faint); line-height: 1.5; }
+.q-runask-where code { font-family: var(--q-mono); font-size: 11px; }
+
+/* the folded-in output. it is a real fence in the file, so it has to earn its
+ * difference from a code block with css alone. flat, dimmer, a left edge, no
+ * line numbers: it reads as a receipt rather than as something you wrote. */
+#write .md-fences[lang="quire-out"] {
+  border: none;
+  border-left: 2px solid color-mix(in srgb, var(--q-accent) 45%, transparent);
+  border-radius: 0;
+  background: var(--q-e1);
+  font-size: 11.5px;
+  opacity: 0.82;
+  padding-left: 12px;
+}
+#write .md-fences[lang="quire-out"] .CodeMirror-gutters,
+#write .md-fences[lang="quire-out"] .md-fences-adv-panel { display: none; }
+
+/* ---- sessions --------------------------------------------------------------- */
+
+.q-sess-head, .q-stale-head {
+  display: flex; align-items: baseline; gap: var(--q-s2);
+  padding: 0 6px 8px;
+}
+.q-sess-count { font-size: 10.5px; color: var(--q-faint); }
+.q-sess-act {
+  margin-left: auto;
+  padding: 2px 8px; border-radius: 10px; font-size: 10.5px; cursor: default;
+  background: var(--q-e1); color: var(--q-muted);
+}
+.q-sess-acts .q-sess-act { margin-left: 0; }
+.q-sess-act:hover { background: var(--q-e2); color: var(--q-fg); }
+
+.q-sess-row {
+  padding: 7px 8px 8px;
+  border-radius: var(--q-r1);
+  cursor: default;
+}
+.q-sess-row:hover { background: var(--q-e1); }
+.q-sess-t {
+  font-size: 12.5px; font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-sess-row.sub .q-sess-t { font-weight: 400; opacity: 0.72; }
+.q-sess-m {
+  margin-top: 2px;
+  font-size: 10.5px; color: var(--q-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-sess-acts {
+  display: none; gap: 5px; margin-top: 6px;
+}
+.q-sess-row:hover .q-sess-acts { display: flex; }
+
+/* ---- doc staleness ---------------------------------------------------------- */
+
+.q-side-label {
+  padding: 12px 6px 5px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.07em; opacity: 0.4;
+}
+.q-side-label:first-child { padding-top: 2px; }
+
+.q-stale-row {
+  padding: 6px 8px 7px;
+  border-radius: var(--q-r1);
+  cursor: default;
+}
+.q-stale-row:hover { background: var(--q-e1); }
+.q-stale-n {
+  display: flex; align-items: baseline; gap: 7px;
+  font-size: 12.5px; font-weight: 550;
+}
+.q-stale-d {
+  font-size: 10px; color: var(--q-faint); font-weight: 400;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-stale-m { margin-top: 2px; font-size: 10.5px; color: var(--q-muted); }
+.q-stale-s {
+  margin-top: 1px;
+  font-family: var(--q-mono); font-size: 10px; color: var(--q-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* a sticky is a note, not a workbench: no run buttons on one. and the read-only
+ * pane covers the document at z-index 10, so the fences behind it still have
+ * rectangles and would otherwise put buttons on top of somebody else's file. */
+body.q-sticky #q-run-layer,
+body.q-view-open #q-run-layer,
+body.q-zen #q-run-layer { display: none; }

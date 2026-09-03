@@ -477,3 +477,247 @@ value, but the path from a keystroke to that handler is inference. the eight-lin
 rule has never fired on a real reformat, because i could not make the writer do
 one. and the sticky's save-as-you-type is debounced and wired but never watched
 under a real hand, only reasoned about from the fact that autosave did not fire.
+
+---
+
+## 2026-09-03 · a fence you can press
+
+pass three. the code blocks run, the claude transcripts are readable, and the
+docs say how far behind the code they are.
+
+### the thing i was wrong about, and the measurement that killed it
+
+i went in believing the session viewer's hard problem was getting the markdown
+across the bridge. it is written into the plan i inherited: 152 KB of output
+blows the 60,000 byte cap on `Q.shell`, so page it or pull it back through
+`Q.shellBig` with `{raw:true}`.
+
+then i measured the actual corpus instead of the example. `~/.claude/projects`
+on this machine is **1,542 transcripts and 1.0 GB**. the biggest single file is
+**47 MB**, and the renderer turns it into **1.27 MB of markdown in 0.13s**. not
+152 KB. shellBig would have pulled that back in 31 base64 chunks at 42 KB each,
+one shell round trip per chunk, to build a string that then has to become a
+document anyway.
+
+the cap was never the problem. the problem was that i had decided the markdown
+must arrive in javascript.
+
+it must not. python writes it straight to a file and the editor opens the file.
+the only thing that crosses the bridge is `wc -c`. one number. the whole paging
+apparatus in the plan exists to solve a constraint that disappears the moment
+you stop moving the bytes.
+
+paging is still in there, but for a different reason and with a different
+trigger: 1.27 MB is not a document, it is a stress test, so anything over 600 KB
+renders as the first 400 records and the python's own "rerun with --from N" line
+is the next page.
+
+### the record the plan told me to key on is missing from 29 of 40 files
+
+same plan, next assumption. the session's real name is the `ai-title` record.
+that is how the sticky resolver works and it is correct there.
+
+so i checked it on the 40 newest transcripts before building the list around it:
+
+```
+29 NOTITLE subagent
+11 TITLE   main
+```
+
+every subagent transcript has no `ai-title` record at all. every main session
+has one. it is not "sometimes late in the file", which is what the note warns
+about. for a subagent it is never there.
+
+that changed two things. a subagent row is labelled by what it is rather than
+handed a title it does not have, and the expensive column is skipped for them
+entirely: 29 of 40 files no longer get grepped end to end to find nothing.
+
+i also tried being clever about the grep. `tail -c 262144 | grep` instead of
+scanning the whole file: 0.46s for 40 files. the full scan: 0.41s. the tail was
+**slower**, and it missed titles that the full scan finds, because the tail
+still has to seek and the grep dies on the first match anyway. clever lost to
+plain by 12%.
+
+### insertText is a paste, so it cannot put text where the output goes
+
+the run affordance needs to fold output in **under the block that produced it**.
+that is a write at an exact offset in the document.
+
+there isn't one. the host's editor has exactly this:
+
+```js
+insertText(t){ this.UserOp.pasteHandler(this, t, !0, !0, !0) }
+```
+
+it is a paste at the caret, and the caret is wherever the person left it, which
+is not where the output belongs. `jumpIntoElemEnd` exists, but a fence on screen
+is either a `contenteditable=false` <pre> or a live CodeMirror, and jumping into
+the second one puts the caret **inside the code**, so the output would land in
+the command.
+
+so the write is the whole document. compute the new markdown, hand it to
+`File.reloadContent`, put the scroll position back. it registers one undo command
+tagged `reload`, so ⌘Z takes the output back out in a single step, which is
+better than what a paste would have given.
+
+one thing it does not do reliably is mark the document edited, and an edit that
+is not marked is an edit that is silently lost on quit. so `updateChangeCount`
+is called explicitly right after.
+
+### the DOM knows where a fence is, only the source knows which fence it is
+
+the button is placed from the DOM. the edit is computed from the markdown. they
+are joined by matching the code text, never by trusting that the nth `<pre>` is
+the nth fence, because an indented code block renders as `.md-fences` too and is
+not a fence in the source at all.
+
+the scanner cost me two bugs, both caught by tests before the app ever saw them:
+
+- a fence nobody closed runs to the end of the document, and splitting a text
+  that ends in a newline leaves an empty last element. that empty string was
+  being handed to the shell as the last line of the command.
+- a document whose final character is the closing backtick has no newline after
+  it, so the result block got welded on as ```` ```\n```quire-out ```` with no
+  blank line between them. one fence, not two.
+
+47 assertions run outside the app against a stub host. that is where both of
+those died, in about a second each, instead of inside a signed bundle.
+
+### the half of the flagship that matters is the half where nothing happens
+
+a document is untrusted input. anybody can put `rm -rf ~` in a fence and send it
+to you, and an editor that runs what it renders is remote code execution with
+syntax highlighting. so nothing ever runs on its own: not on open, not on load,
+not on focus, not on a poll.
+
+that is easy to write in a comment and worth nothing until it is measured. the
+selftest puts a shell block into a real document, the command in it creates a
+file, and the document is rendered, redrawn and laid out for 2.4 seconds. then
+it checks the file is not there. only after that does it run the block on
+purpose and check it is.
+
+```
+runBlock  ok · did not run on its own after 2.4s of rendering · 1 run button
+          drawn · ran when asked · output folded in under the block ·
+          a re-run replaced it, still one block
+```
+
+the classifier gets the same treatment. 15 ordinary commands have to run without
+a question and 16 destructive ones have to be held, and the dialog itself is
+opened, read and cancelled by the test:
+
+```
+runAsk  ok · asked ("This command can destroy things"), cancel returned nothing
+        and ran nothing
+```
+
+it is a seatbelt, not a sandbox, and the dialog says so. it reads the literal
+text of the command. `eval`, a variable holding a path, a script called by name,
+all of them walk straight past it. i took `$(` off the list on purpose: flagging
+every command substitution flags almost every real command, and a question you
+always answer yes to is not a question.
+
+the one regex that took three tries is the redirect. `2>/dev/null` is not a
+command overwriting a file and neither is `2>&1`, but both look exactly like one
+until you exclude a digit or an ampersand next to the arrow.
+
+### a command's exit status does not survive the trip
+
+i wanted the result block to say `exit 3`. it cannot. `parseResult` in the core
+turns the array form of a result into `code: r[0] ? 0 : 1`, so anything that is
+not zero arrives as 1, and the object form's `code` is not always populated
+either. a number there would be invented.
+
+so the block says `ok` or `failed`, plus the duration, plus the line count. three
+things that are true beats one that reads better.
+
+### the docs panel is one git call, not one per doc
+
+`git log --name-only` is newest first, so the first time a path appears is the
+last time it changed. one pass over 400 commits answers every question at once:
+when each doc was last committed, when the code next to it was, and how many
+commits of code landed in between.
+
+"the code it describes" is the directory the doc lives in. that is a heuristic
+and it is the honest one available, because nothing in a markdown file says which
+functions it is about. where it is wrong it is wrong in the direction of asking a
+question.
+
+the test builds its own repo so the answer is known before the code is asked:
+one doc, then two commits of code after it, then an uncommitted second doc.
+
+```
+stale  ok · README.md 2 commits behind (built it to be 2), newest code
+       src/a.js, uncommitted NOTES.md listed, 3 commits read
+```
+
+it only says 2 because the commit dates are pinned. three commits made back to
+back land in the same second, `%ct` has one second of resolution, and the first
+version of that test built a repo specifically to be two commits behind and got
+zero.
+
+### what i could not check
+
+i could not press the button. the selftest calls `exec` directly, so the click
+handler is wired and unproven. what i do have is a photograph: the window
+captured by id, no focus taken, and the run pill sitting in the top right corner
+of the bash fence at 32% opacity, exactly where the code puts it. drawn is
+proven. pressed is not.
+
+the sessions and docs panels are proven at the DOM level only. the `panels`
+stage renders every registered section and fails on an empty one, and it says
+`7 render` now instead of 5. i never got a photograph of either one, because
+getting one means driving the sidebar, and driving the sidebar means the
+keyboard.
+
+i tried to cheat that with `defaults write com.ethangiannaros.quire quirePrefs`
+to make the sidebar come back on the sessions section. nothing happened. the
+plist key is written and the app never reads it, which is the same thing the
+selftest's own header warns about: the host only reloads preference keys it
+already knows about. localStorage is what actually persists our preferences, and
+there is no way in from outside.
+
+and `saveWrite` still fails when you arm it. 45 seconds, autosave never fires.
+that is unchanged from yesterday and it is why that stage is behind a marker file
+and reports `skipped` in an ordinary run.
+
+### what i decided against
+
+no running every block in a document with one key. it is four lines of code and
+it is the feature that turns one careless press into twelve commands, half of
+them with the output of the first three baked into a note somebody sent you.
+
+no javascript port of the renderer. the instruction was to port it and not
+rewrite it, and after measuring the corpus that stopped being an instruction and
+started being the right call: python renders 47 MB in 0.13s straight to a file,
+and the javascript version's first act would have been to defeat the reason it
+is fast.
+
+no run buttons in the read-only pane, in zen, or on a sticky. the pane sits at
+z-index 10 over the document, so the fences behind it still have rectangles and
+would have put run buttons on top of somebody else's file.
+
+no exit code, see above. no `git blame` for staleness either: it answers a
+different question, which is who wrote a line, not whether the paragraph around
+it is still true.
+
+### verified
+
+42 selftest stages, 8 of them new, all passing, against a scratch document under
+`$TMPDIR` so nothing in a repo was ever open in the editor. 127 commands, 38
+keys, no duplicate key and no duplicate id. `seal OK`.
+
+proven with numbers rather than asserted: a fence scanner that finds 4 fences in
+a document written to break it, with offsets that slice the source back exactly,
+a nested fence counted once and an unterminated one running to the end. 15 safe
+commands through and 16 destructive ones held. output that lands under its own
+block, a re-run that replaces rather than stacks, a 3-backtick output that gets a
+4-backtick fence, and the right one of two identical blocks getting the result.
+seven transcript record shapes handled and seven junk record types dropped, with
+the title read off the last line of the file. 7,356 KB of real transcript in, 193
+KB of markdown out, 4,327 lines, 260ms. a README two commits behind a repo built
+to put it exactly two commits behind.
+
+the scratch document came back byte identical after every run, including the one
+that deliberately dirtied it. the dialog watchdog logged nothing, because no
+dialog ever appeared.

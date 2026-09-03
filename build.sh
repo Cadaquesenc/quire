@@ -199,6 +199,18 @@ cp "$QS/qwindows" "$QS/qsession.sh" "$TM/qsession/"
 chmod +x "$TM/qsession/qwindows" "$TM/qsession/qsession.sh"
 echo "    qsession built"
 
+# qtranscript turns a claude code .jsonl into readable markdown. it is python
+# rather than javascript for one reason: a 47 MB transcript renders in 0.13s and
+# writes straight to a file, so nothing ever crosses the 60,000 byte bridge cap.
+# the same job in js would have to pull the whole file through base64 in 42 KB
+# chunks first.
+mkdir -p "$TM/qtranscript"
+cp "$HERE/native/qtranscript/qtranscript.py" "$TM/qtranscript/"
+chmod +x "$TM/qtranscript/qtranscript.py"
+python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$TM/qtranscript/qtranscript.py" \
+  || { echo "    qtranscript.py does not parse" >&2; exit 1; }
+echo "    qtranscript installed"
+
 # ---- our source -------------------------------------------------------------
 echo "==> installing src"
 DEST="$TM/quire"

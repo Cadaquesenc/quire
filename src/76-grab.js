@@ -58,7 +58,10 @@
     return "`" + cmd.replace(/`/g, "’") + "`\n\n" + f + "\n" + body + note + "\n" + f + "\n";
   }
 
-  Q.grab = { lastRun, block };
+  // `fence` is shared with the code runner, which folds command output back into
+  // the document and has the same problem: output with backticks in it needs a
+  // longer fence or the block ends inside itself.
+  Q.grab = { lastRun, block, fence };
 
   Q.command({
     id: "grabOutput", title: "Grab the last command and its output", category: "Quire",

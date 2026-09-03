@@ -12,7 +12,10 @@
 // is already gone by the time the next command starts.
 
 (function (Q) {
-  const state = { cwd: "", history: [], hi: -1, lines: [], busy: false };
+  // `last` is what the code runner reads: the scrollback carries the text but
+  // not the exit status, and a result block that cannot say `exit 1` is a
+  // result block that hides the failure.
+  const state = { cwd: "", history: [], hi: -1, lines: [], busy: false, last: null };
   const MAX_LINES = 400;
 
   function cwd() {
@@ -55,29 +58,49 @@
 
   function run(cmd, render) {
     cmd = cmd.trim();
-    if (!cmd) return Promise.resolve();
+    if (!cmd) return Promise.resolve(null);
     push("cmd", cmd);
     state.history.push(cmd);
     state.hi = state.history.length;
 
+    const started = Date.now();
+    const where = cwd();
+    // a `cd` or a `clear` is bookkeeping, not a command that ran, so it does not
+    // become `last`. only a real shell run does.
     const cd = /^cd(\s+(.*))?$/.exec(cmd);
     let job;
     if (cd) {
-      job = handleCd(cd[2]);
+      job = handleCd(cd[2]).then(() => null);
     } else if (cmd === "clear") {
       state.lines = [];
-      job = Promise.resolve();
+      job = Promise.resolve(null);
     } else {
       state.busy = true;
       render();
-      job = Q.shell(cmd, cwd()).then((r) => {
+      job = Q.shell(cmd, where).then((r) => {
         if (r.out) push("out", r.out);
         if (r.err) push("err", r.err);
         if (!r.out && !r.err) push("info", r.ok ? "(no output)" : "(failed, no output)");
+        // `code` is whatever the bridge chose to hand back. it is not reliably
+        // the process's exit status: parseResult collapses the array form of a
+        // result to a boolean, so anything that is not zero arrives as 1. that
+        // is why a result block says `ok` or `failed` and not `exit 3`.
+        const res = { cmd: cmd, cwd: where, out: r.out, err: r.err, ok: !!r.ok,
+                      code: r.code == null ? (r.ok ? 0 : 1) : r.code,
+                      ms: Date.now() - started };
+        state.last = res;
+        return res;
       });
     }
-    return job.then(() => { state.busy = false; render(); },
-                    (e) => { state.busy = false; push("err", String(e)); render(); });
+    return job.then((res) => { state.busy = false; render(); return res; },
+                    (e) => {
+                      state.busy = false;
+                      push("err", String(e));
+                      render();
+                      state.last = { cmd: cmd, cwd: where, out: "", err: String(e),
+                                     ok: false, code: -1, ms: Date.now() - started };
+                      return state.last;
+                    });
   }
 
   // the section keeps its element while you are off looking at something else,

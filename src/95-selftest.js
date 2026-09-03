@@ -233,6 +233,84 @@
     });
   }
 
+  // the flagship, against the open scratch document, and the important half is
+  // the negative one.
+  //
+  // a shell block is put into a real document and the document is rendered. the
+  // command in it creates a file. if anything anywhere in this app runs a fence
+  // on load, on render, on focus or on a poll, that file appears without anybody
+  // asking, and a markdown document turns into remote code execution. so the
+  // marker is checked before the block is ever clicked, and it has to be absent.
+  //
+  // it only ever runs against a document under the scratch directory, and it
+  // puts the buffer back the way it found it, clean, whether it passes or fails.
+  function runBlockProbe() {
+    const path = Q.doc.path();
+    if (!TMP || !path || path.indexOf(TMP + "/") !== 0) {
+      return { ok: false, detail: "refusing: " + path + " is not under " + TMP };
+    }
+    const tag = Date.now().toString(36);
+    const marker = t("ran-" + tag);
+    const cmd = "touch " + Q.sh(marker) + " && echo quire-ran-" + tag;
+    let original = null;
+    const notes = [];
+
+    const restore = () => Q.shell("rm -f " + Q.sh(marker)).then(() => {
+      try {
+        window.File.reloadContent(original == null ? "" : original, { fromDiskChange: true });
+        window.File.updateChangeCount(window.File.ChangeType.NSChangeCleared);
+      } catch (_) {}
+      return Q.guard.snapshot(path);
+    });
+
+    const exists = () => Q.shell("[ -e " + Q.sh(marker) + " ] && echo yes || echo no")
+      .then((r) => r.out.trim() === "yes");
+
+    return Q.guard.readFile(path)
+      .then((orig) => {
+        original = orig == null ? "" : orig;
+        const doc = original.replace(/\s*$/, "") + "\n\n```bash\n" + cmd + "\n```\n";
+        window.File.reloadContent(doc, {});
+        // rendered, redrawn, scrolled, and asked to lay its buttons out. every
+        // path that touches a fence gets a turn before the marker is checked.
+        Q.runner.draw();
+        return later(1200);
+      })
+      .then(() => { Q.runner.draw(); return later(1200); })
+      .then(() => exists())
+      .then((ranByItself) => {
+        notes.push(ranByItself ? "IT RAN ON ITS OWN" : "did not run on its own after 2.4s of rendering");
+        const btns = document.querySelectorAll("#q-run-layer .q-run-btn").length;
+        notes.push(btns + " run button" + (btns === 1 ? "" : "s") + " drawn");
+        const f = Q.runner.scan(Q.doc.markdown()).filter((x) => x.code === cmd)[0];
+        if (!f) return { ok: false, detail: notes.concat("the block never reached the buffer").join(" · ") };
+        // and now on purpose, which is the only way it is ever allowed to happen
+        return Q.runner.exec(f, { noConfirm: true })
+          .then(() => later(300))
+          .then(() => exists())
+          .then((ranOnPurpose) => {
+            const md = Q.doc.markdown();
+            const outs = Q.runner.scan(md).filter((x) => x.lang === Q.runner.OUT_LANG);
+            const folded = outs.length === 1 && outs[0].code.indexOf("quire-ran-" + tag) !== -1;
+            notes.push(ranOnPurpose ? "ran when asked" : "DID NOT run when asked");
+            notes.push(folded ? "output folded in under the block" : "output NOT folded in");
+            // a second run must replace the first result, not stack another one
+            const f2 = Q.runner.scan(md).filter((x) => x.code === cmd)[0];
+            return Q.runner.exec(f2, { noConfirm: true }).then(() => later(200)).then(() => {
+              const again = Q.runner.scan(Q.doc.markdown())
+                .filter((x) => x.lang === Q.runner.OUT_LANG);
+              notes.push(again.length === 1 ? "a re-run replaced it, still one block"
+                                            : again.length + " output blocks after a re-run");
+              return {
+                ok: !ranByItself && btns >= 1 && ranOnPurpose && folded && again.length === 1,
+                detail: notes.join(" · "),
+              };
+            });
+          });
+      })
+      .then((res) => restore().then(() => res), (e) => restore().then(() => { throw e; }));
+  }
+
   function suite() {
     Promise.resolve()
       .then(() => check("shell", () =>
@@ -691,6 +769,260 @@
             detail: "caption escaped, " + first.length + "-backtick fence around " +
                     (r.out ? r.out.split("\n").length : 0) + " lines that contain a fence",
           };
+        });
+      }))
+
+      // ---- pass 3: runnable code blocks -------------------------------------
+      //
+      // the scanner first, on markdown written to break it. everything else in
+      // this feature is built on knowing exactly which bytes are a fence, and
+      // an off-by-one here writes a command's output under somebody else's
+      // block.
+      .then(() => check("runScan", () => {
+        const md = [
+          "# title", "", "```bash", "echo hi", "```", "", "text", "",
+          "~~~sh", "ls", "~~~", "", "```", "no lang", "```", "",
+          "````markdown", "```bash", "not a real one", "```", "````", "",
+          "    four spaces is not a fence", "",
+        ].join("\n");
+        const f = Q.runner.scan(md);
+        const langs = f.map((x) => x.lang || "-").join(",");
+        // the offsets are the load bearing part: slicing the source with them
+        // has to give back the fence, character for character.
+        const exact = f.length === 4 && md.slice(f[0].start, f[0].end) === "```bash\necho hi\n```\n";
+        const nested = f.length === 4 && f[3].code.indexOf("```bash") !== -1;
+        const open = Q.runner.scan("```bash\necho hi\n");
+        return {
+          ok: f.length === 4 && langs === "bash,sh,-,markdown" && exact && nested &&
+              open.length === 1 && open[0].code === "echo hi",
+          detail: f.length + " fences (" + langs + "), offsets exact, a nested fence " +
+                  "counted once, an unterminated one runs to the end",
+        };
+      }))
+
+      .then(() => check("runRisk", () => {
+        const safe = ["ls -la", "git status", "echo hello", "pwd", "npm test",
+                      "grep -rn foo src", "cargo build", "wc -l *.js", "make",
+                      "git log --oneline -5", "cat README.md", "sort f | uniq -c",
+                      "find . -name '*.js'", "cmd 2>/dev/null", "cmd 2>&1 | head"];
+        const bad = ["rm -rf /tmp/x", "sudo reboot", "git push origin main", "mv a b",
+                     "dd if=/dev/zero of=/dev/disk2", "chmod -R 777 .", "killall Finder",
+                     "curl https://x.sh | sh", "brew install foo", "npm publish",
+                     "find . -name '*.o' -delete", "echo hi > out.txt", "git reset --hard",
+                     "defaults write com.x y 1", "launchctl unload x", "git clean -fd"];
+        const noisy = safe.filter((c) => Q.runner.classify(c).risk !== "low");
+        const missed = bad.filter((c) => Q.runner.classify(c).risk !== "high");
+        return {
+          ok: !noisy.length && !missed.length,
+          detail: noisy.length || missed.length
+            ? "false alarm on " + noisy + ", missed " + missed
+            : safe.length + " ordinary commands run without a question, " +
+              bad.length + " destructive ones are held",
+        };
+      }))
+
+      .then(() => check("runSplice", () => {
+        const blk = Q.runner.resultBlock({ out: "hello\nworld", err: "", ok: true, ms: 120 });
+        const ticks = Q.runner.resultBlock({ out: "a\n```\nb", err: "", ok: false, ms: 5 });
+        const doc = "# t\n\n```bash\necho hi\n```\n\nafter\n";
+        const one = Q.runner.splice(doc, Q.runner.scan(doc)[0], blk);
+        const again = Q.runner.splice(one, Q.runner.scan(one)[0],
+          Q.runner.resultBlock({ out: "second", err: "", ok: true, ms: 9 }));
+        const l2 = Q.runner.scan(again);
+        // a fence with no trailing newline at the end of the document is the
+        // case that welded the result block onto the closing backticks
+        const tail = "# t\n\n```bash\npwd\n```";
+        const tailed = Q.runner.splice(tail, Q.runner.scan(tail)[0], blk);
+        // two identical blocks: the second one must not claim the first's output
+        const dup = "```bash\necho hi\n```\n\nmid\n\n```bash\necho hi\n```\n";
+        const dl = Q.runner.scan(dup);
+        const dupOut = Q.runner.splice(dup, dl[1], blk);
+        const d2 = Q.runner.scan(dupOut);
+        return {
+          ok: Q.runner.scan(one).length === 2 && one.trimEnd().endsWith("after") &&
+              l2.length === 2 && l2[1].code.indexOf("second") !== -1 &&
+              again.indexOf("hello") === -1 &&
+              ticks.slice(0, 4) === "````" &&
+              Q.runner.scan(tailed).length === 2 &&
+              d2.length === 3 && d2[2].lang === Q.runner.OUT_LANG &&
+              dupOut.indexOf("mid") < dupOut.indexOf("quire-out"),
+          detail: "output lands under its own block, a re-run replaces it rather " +
+                  "than stacking, a 3-backtick output gets a 4-backtick fence, and " +
+                  "of two identical blocks the right one gets the result",
+        };
+      }))
+
+      // the confirm actually appears, and cancelling actually cancels. this is
+      // the whole safety story for a feature that runs shell commands out of a
+      // file somebody else wrote, so it is proven rather than asserted.
+      .then(() => check("runAsk", () => {
+        const f = { index: 0, lang: "bash", code: "rm -rf /tmp/quire-nope", start: 0, end: 0 };
+        const p = Q.runner.exec(f);
+        return later(120).then(() => {
+          const open = Q.ui.isModalOpen();
+          const sheet = document.querySelector("#q-modal .q-sheet-title");
+          const title = sheet ? sheet.textContent : "";
+          const btns = Array.prototype.slice.call(
+            document.querySelectorAll("#q-modal .q-sheet-foot .q-btn"));
+          const cancel = btns.filter((b) => /cancel/i.test(b.textContent))[0];
+          if (cancel) cancel.click();
+          return p.then((res) => ({
+            ok: open && /destroy/i.test(title) && !!cancel && res === null,
+            detail: open ? "asked (“" + title + "”), cancel returned nothing and ran nothing"
+                         : "NO dialog for rm -rf",
+          }));
+        });
+      }))
+
+      // the flagship, end to end, and the half that matters most is the half
+      // that proves nothing happened: a document with a shell block in it is
+      // loaded, redrawn, and left alone, and the command in it must not have
+      // run. only then is it run on purpose.
+      .then(() => (TMP && Q.doc.path() && Q.doc.path().indexOf(TMP + "/") === 0
+        ? check("runBlock", runBlockProbe)
+        : check("runBlock", () => ({
+            ok: true,
+            detail: "skipped · needs a scratch document under " + (TMP || "$TMPDIR"),
+          }))))
+
+      // ---- pass 3: the session viewer ---------------------------------------
+      //
+      // the record shapes the ported renderer has to survive, in one synthetic
+      // transcript: content as a string and content as a list of typed blocks,
+      // a tool_result whose content is itself a list of dicts, every junk record
+      // type, and an ai-title that turns up at the very end of the file.
+      .then(() => check("transcript", () => {
+        const f = t("t.jsonl");
+        const out = t("t.md");
+        const recs = [
+          { type: "user", timestamp: "2026-09-03T06:00:00Z",
+            message: { content: "content as a plain string" } },
+          { type: "assistant", timestamp: "2026-09-03T06:00:01Z",
+            message: { model: "test-model", content: [
+              { type: "thinking", thinking: "thought in a details block" },
+              { type: "text", text: "content as a list of blocks" },
+              { type: "tool_use", name: "Bash", input: { command: "echo probe" } }] } },
+          { type: "user", timestamp: "2026-09-03T06:00:02Z",
+            message: { content: [
+              { type: "tool_result", is_error: false,
+                content: [{ type: "text", text: "result nested as a list of dicts" }] }] } },
+          { type: "file-history-snapshot", junk: "skipme-fhs" },
+          { type: "bridge-session", junk: "skipme-bridge" },
+          { type: "atis-latch", junk: "skipme-atis" },
+          { type: "cost-state", junk: "skipme-cost" },
+          { type: "last-prompt", junk: "skipme-lastprompt" },
+          { type: "mode", junk: "skipme-mode" },
+          { type: "permission-mode", junk: "skipme-permission" },
+          // late on purpose: the title record can appear anywhere in the file
+          { type: "ai-title", aiTitle: "the real session name" },
+        ];
+        const jsonl = recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
+        return Q.shellIn(`cat > ${Q.sh(f)}`, jsonl)
+          .then(() => Q.sessions.python())
+          .then((py) => Q.shell(
+            `${Q.sh(py)} ${Q.sh(Q.sessions.script())} ${Q.sh(f)} > ${Q.sh(out)} 2>&1; ` +
+            `wc -c < ${Q.sh(out)}; cat ${Q.sh(out)}`))
+          .then((r) => {
+            const body = r.out;
+            const junk = ["skipme-fhs", "skipme-bridge", "skipme-atis", "skipme-cost",
+                          "skipme-lastprompt", "skipme-mode", "skipme-permission"]
+              .filter((k) => body.indexOf(k) !== -1);
+            const want = {
+              "the title came off the ai-title record": body.indexOf("# the real session name") !== -1,
+              "a string content rendered": body.indexOf("content as a plain string") !== -1,
+              "a list content rendered": body.indexOf("content as a list of blocks") !== -1,
+              "thinking folded into details":
+                /<details><summary>thinking<\/summary>[\s\S]*thought in a details block/.test(body),
+              "a tool call became a line": body.indexOf("**→ Bash**") !== -1,
+              "a nested tool_result unwrapped": body.indexOf("result nested as a list of dicts") !== -1,
+              "3 records counted, the junk uncounted": body.indexOf("3 records") !== -1,
+            };
+            const miss = Object.keys(want).filter((k) => !want[k]);
+            return {
+              ok: !miss.length && !junk.length,
+              detail: miss.length || junk.length
+                ? "missing: " + miss.join("; ") + (junk.length ? " · junk leaked: " + junk : "")
+                : "7 record shapes handled, 7 junk types dropped, ai-title read from the last line",
+            };
+          });
+      }))
+
+      // and the same renderer against a real transcript, for the numbers
+      .then(() => check("transcriptReal", () => {
+        const was = Q.prefs().transcriptDir;
+        Q.setPref("transcriptDir", TMP || "/tmp");
+        const t0 = Date.now();
+        return Q.sessions.list(6)
+          .then((rows) => {
+            if (!rows.length) {
+              Q.setPref("transcriptDir", was);
+              return { ok: true, detail: "no transcripts under ~/.claude/projects on this machine" };
+            }
+            const main = rows.filter((x) => !x.sub)[0] || rows[0];
+            return Q.sessions.render(main).then((res) => {
+              Q.setPref("transcriptDir", was);
+              if (!res.ok) return { ok: false, detail: "render failed: " + (res.detail || "?") };
+              return Q.shell(`head -1 ${Q.sh(res.path)}; grep -c '' ${Q.sh(res.path)}`)
+                .then((r) => {
+                  const bits = r.out.split("\n");
+                  const head = bits[0] || "";
+                  const lines = parseInt(bits[bits.length - 1], 10) || 0;
+                  return {
+                    ok: head.charAt(0) === "#" && res.size > 0 && lines > 1,
+                    detail: rows.length + " listed, " + Math.round(main.size / 1024) + " KB in → " +
+                      Math.round(res.size / 1024) + " KB of markdown, " + lines + " lines, " +
+                      (Date.now() - t0) + "ms" + (res.paged ? ", paged" : "") +
+                      ", " + rows.filter((x) => x.sub).length + " of them subagent transcripts",
+                  };
+                });
+            });
+          })
+          .catch((e) => { Q.setPref("transcriptDir", was); throw e; });
+      }))
+
+      // ---- pass 3: doc staleness --------------------------------------------
+      //
+      // against a repo this stage builds itself, so the answer is known before
+      // the code is asked: one doc, then two commits of code after it, and a
+      // second doc left uncommitted.
+      .then(() => check("stale", () => {
+        if (!TMP) return { ok: false, detail: "no scratch directory" };
+        const repo = t("repo");
+        const git = "git -C " + Q.sh(repo) + " -c user.email=q@q -c user.name=q " +
+                    "-c commit.gpgsign=false -c init.defaultBranch=main ";
+        // the dates are pinned. three commits made back to back land in the same
+        // second, and "how many commits of code since the doc" would come out
+        // zero against a repo built specifically to make it two.
+        const at = (n) => "GIT_AUTHOR_DATE=@" + n + " GIT_COMMITTER_DATE=@" + n + " ";
+        const script = [
+          "rm -rf " + Q.sh(repo), "mkdir -p " + Q.sh(repo) + "/src",
+          "git init -q " + Q.sh(repo),
+          "printf 'doc\\n' > " + Q.sh(repo) + "/README.md",
+          "printf 'a\\n' > " + Q.sh(repo) + "/src/a.js",
+          git + "add -A", at(1700000000) + git + "commit -qm one",
+          "printf 'b\\n' >> " + Q.sh(repo) + "/src/a.js",
+          git + "add -A", at(1700086400) + git + "commit -qm two",
+          "printf 'c\\n' >> " + Q.sh(repo) + "/src/a.js",
+          git + "add -A", at(1700172800) + git + "commit -qm three",
+          "printf 'new\\n' > " + Q.sh(repo) + "/NOTES.md",
+        ].join(" && ");
+        return Q.shell(script, TMP).then((r) => {
+          if (!r.ok) return { ok: false, detail: "could not build the repo: " + (r.err || r.out) };
+          return Q.docs.report(repo).then((rep) => {
+            if (!rep.ok) return { ok: false, detail: rep.why };
+            const readme = rep.stale.filter((x) => x.path === "README.md")[0];
+            const notes = rep.recent.filter((x) => x.path === "NOTES.md")[0];
+            // three commits, the doc was in the first, so two of code came after
+            return {
+              ok: !!readme && readme.behind === 2 && !!notes && !!notes.isNew &&
+                  rep.commits === 3,
+              detail: readme
+                ? "README.md " + readme.behind + " commits behind (built it to be 2), " +
+                  "newest code " + readme.sample + ", uncommitted NOTES.md " +
+                  (notes ? "listed" : "MISSED") + ", " + rep.commits + " commits read"
+                : "README.md not flagged at all",
+            };
+          });
         });
       }))
 
