@@ -39,7 +39,7 @@ so it isn't a pandoc button. it's a shell.
 backlinks, tags, git, the file list, the terminal. all of it is `grep`, `find`
 and `git`, going out through a door built for one export format.
 
-## what it adds
+## what it adds as of now
 
 - **command palette** (`⌘⌥P`). 91 commands, searchable.
 - **shortcuts you can rebind.** click a row, press a key. typora on mac can't do
