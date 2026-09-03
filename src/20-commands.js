@@ -11,13 +11,22 @@
   const commands = {};
   const order = [];
 
+  // a second command claiming an id silently replaces the first, and the only
+  // symptom is that the palette is one row shorter than the source says it
+  // should be. that is how `sidebar` ate the host's own sidebar toggle: the
+  // count said 108 where the source had 109, and nothing else complained.
+  const collisions = [];
+
   Q.command = function (spec) {
     if (!spec || !spec.id) return;
     if (!commands[spec.id]) order.push(spec.id);
+    else { collisions.push(spec.id); Q.warn("command id already taken:", spec.id); }
     commands[spec.id] = Object.assign({ category: "Editor", when: null }, spec);
     if (spec.keys) Q.keys.bind(spec.keys, spec.id, true);
     return spec.id;
   };
+
+  Q.commandCollisions = () => collisions.slice();
 
   Q.commands = () => order.map((id) => commands[id]).filter(Boolean);
   Q.getCommand = (id) => commands[id];
@@ -117,8 +126,17 @@
     return parts.map((p) => GLYPH[p] || p).join("") + label;
   };
 
-  // the combo for an event. e.code is used for letters and digits so that a
+  // the combo for an event. e.code is used rather than e.key so that a
   // remapped or option-modified key still matches what the user pressed.
+  //
+  // punctuation is in here for the same reason letters are, and it is not
+  // decoration: option turns - = / [ ] \ into – ≠ ÷ “ ‘ «, so a binding on a
+  // punctuation key with ⌥ in it never matched anything through e.key.
+  const CODE_BASE = {
+    Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\",
+    Semicolon: ";", Quote: "'", Backquote: "`", Comma: ",", Period: ".", Slash: "/",
+  };
+
   function comboOf(e) {
     const k = (e.key || "").toLowerCase();
     if (k === "meta" || k === "control" || k === "alt" || k === "shift") return null;
@@ -128,10 +146,12 @@
     if (e.altKey) p.push("alt");
     if (e.shiftKey) p.push("shift");
     let base = k;
-    const d = /^Digit(\d)$/.exec(e.code || "");
-    const l = /^Key([A-Z])$/.exec(e.code || "");
+    const code = e.code || "";
+    const d = /^Digit(\d)$/.exec(code);
+    const l = /^Key([A-Z])$/.exec(code);
     if (d) base = d[1];
     else if (l) base = l[1].toLowerCase();
+    else if (CODE_BASE[code]) base = CODE_BASE[code];
     p.push(base);
     return p.join("+");
   }

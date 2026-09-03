@@ -6,7 +6,7 @@
 // is a separate non-interactive `bash -c`, run to completion, output collected
 // at the end.
 //
-// so there is no pty. nothing that expects a terminal works — no vim, no top,
+// so there is no pty. nothing that expects a terminal works, no vim, no top,
 // no password prompts, no ctrl-c, and no output until the command finishes.
 // `cd` is handled here rather than by the shell, because the shell that ran it
 // is already gone by the time the next command starts.
@@ -80,7 +80,22 @@
                     (e) => { state.busy = false; push("err", String(e)); render(); });
   }
 
-  Q.term = { run: (c) => run(c, () => Q.ui.refreshPanel("terminal")), state };
+  // the section keeps its element while you are off looking at something else,
+  // so this is the live redraw for the dom that is already built. going back
+  // through refreshPanel would rebuild it and throw away the scrollback, the
+  // cwd and whatever is half-typed in the input, which is the whole reason the
+  // terminal was worth moving into the sidebar in the first place.
+  let liveRender = null;
+  let liveInput = null;
+
+  Q.term = {
+    state,
+    run(c) {
+      if (!liveRender) Q.ui.showPanel("terminal");
+      return run(c, () => liveRender && liveRender());
+    },
+    focus() { if (liveInput && !liveInput.disabled) liveInput.focus(); },
+  };
 
   Q.ui.registerPanel("terminal", "Terminal", function (body) {
     body.classList.add("q-term-body");
@@ -94,6 +109,7 @@
     const out = body.querySelector(".q-term-out");
     const input = body.querySelector(".q-term-input");
     const prompt = body.querySelector(".q-term-prompt");
+    liveInput = input;
 
     function render() {
       prompt.textContent = shortCwd() + " ›";
@@ -104,8 +120,11 @@
         (state.busy ? '<div class="q-term-line busy"><span class="q-spinner sm"></span>running…</div>' : "");
       out.scrollTop = out.scrollHeight;
       input.disabled = state.busy;
-      if (!state.busy) input.focus();
+      // only take the caret if the terminal is the section on screen. a command
+      // finishing in the background must not pull focus out of the document.
+      if (!state.busy && !body.hidden) input.focus();
     }
+    liveRender = render;
 
     input.addEventListener("keydown", (e) => {
       e.stopPropagation();
@@ -134,12 +153,15 @@
     }, true);
 
     if (!state.lines.length) {
-      push("info", "a real shell, one command at a time. no pty — nothing interactive,");
+      push("info", "a real shell, one command at a time. no pty, nothing interactive,");
       push("info", "and no output until a command finishes. ⌃L clears, ↑ recalls.");
     }
     render();
-    setTimeout(() => input.focus(), 30);
-  }, "terminal");
+    setTimeout(() => { if (!body.hidden) input.focus(); }, 30);
+  }, "terminal", 60);
+
+  // switching back to the terminal puts the caret where you expect it
+  Q.on("sidebar", (id) => { if (id === "terminal") setTimeout(() => Q.term.focus(), 20); });
 
   Q.command({
     id: "terminal", title: "Terminal", category: "Quire", keys: "mod+alt+j",

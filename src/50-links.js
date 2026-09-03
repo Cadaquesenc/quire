@@ -48,7 +48,7 @@
     id: "wikiLink", title: "Link to a note", category: "Links", keys: "mod+alt+k",
     run: function () {
       return listNotes().then((files) => {
-        if (!files.length) return Q.ui.toast("open a folder first — no notes found");
+        if (!files.length) return Q.ui.toast("open a folder first, no notes found");
         pickNote(files, "Link to a note", (f) => {
           Q.doc.replaceSelection("[[" + f.stem + "]]");
         });
@@ -201,7 +201,7 @@
     }).catch((e) => {
       body.innerHTML = '<div class="q-panel-empty">' + Q.esc(e.message) + "</div>";
     });
-  }, "link");
+  }, "link", 20);
 
   Q.command({
     id: "backlinks", title: "Backlinks", category: "Links", keys: "mod+alt+b",

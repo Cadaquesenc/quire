@@ -1,7 +1,7 @@
 "use strict";
 // quire / ui primitives
 //
-// window.prompt is dead in this runtime — the host hijacked it as a synchronous
+// window.prompt is dead in this runtime, the host hijacked it as a synchronous
 // channel to native, and its else branch returns null. so every dialog here is
 // built from scratch rather than borrowed from the browser.
 
@@ -114,54 +114,151 @@
     });
   };
 
-  // ---- side panel -----------------------------------------------------------
-  // a second, right-hand sidebar. the host owns the left one; this one is ours,
-  // and it holds backlinks, the assistant, whatever else wants a column.
+  // ---- the sidebar ----------------------------------------------------------
+  // one column on the right holding every section there is: files, backlinks,
+  // tags, git, the terminal. the host owns the left sidebar; this one is ours.
+  //
+  // an icon rail, not a tab strip. the strip that was here only spelled out the
+  // section you were already in, so four of the five tabs were bare icons
+  // anyway, laid out sideways, competing for the same row as the title. the
+  // rail puts them on the window edge the way discord does, gives the section
+  // name a line of its own, and has room for as many sections as get written.
+  //
+  // each section owns its element and is hidden rather than destroyed. that is
+  // what lets the terminal keep its scrollback, its cwd and whatever is
+  // half-typed in it while you go and look at something else.
 
   const panels = {};
-  let panelEl = null, activePanel = null;
+  const registered = [];
+  let panelEl = null, stackEl = null, railEl = null, titleEl = null, activePanel = null;
+
+  function sections() {
+    return registered.map((id) => panels[id])
+      .sort((a, b) => a.order - b.order || registered.indexOf(a.id) - registered.indexOf(b.id));
+  }
+
+  function applyWidth(w) {
+    w = Math.max(220, Math.min(680, Math.round(w) || 300));
+    document.documentElement.style.setProperty("--q-side-w", w + "px");
+    return w;
+  }
+
+  function wireGrip(grip) {
+    grip.addEventListener("mousedown", function (e) {
+      e.preventDefault();
+      const x0 = e.clientX;
+      const w0 = panelEl.getBoundingClientRect().width;
+      // the panel is on the right, so dragging left widens it
+      const at = (ev) => applyWidth(w0 + (x0 - ev.clientX));
+      const move = (ev) => { at(ev); };
+      const up = (ev) => {
+        document.removeEventListener("mousemove", move, true);
+        document.removeEventListener("mouseup", up, true);
+        document.body.classList.remove("q-side-resizing");
+        Q.setPref("sideWidth", at(ev));
+        Q.emit("sidebar", activePanel);
+      };
+      document.body.classList.add("q-side-resizing");
+      document.addEventListener("mousemove", move, true);
+      document.addEventListener("mouseup", up, true);
+    });
+  }
 
   function ensurePanel() {
     if (panelEl) return panelEl;
     panelEl = Q.el("div", { id: "q-panel" },
-      '<div class="q-panel-tabs"></div>' +
-      '<div class="q-panel-body"></div>');
+      '<div class="q-side-grip" title="drag to resize"></div>' +
+      '<div class="q-side-main">' +
+        '<div class="q-side-head">' +
+          '<span class="q-side-title"></span>' +
+          '<span class="q-side-close" title="Close the sidebar"></span>' +
+        "</div>" +
+        '<div class="q-side-stack"></div>' +
+      "</div>" +
+      '<div class="q-rail"></div>');
     document.body.appendChild(panelEl);
+    stackEl = panelEl.querySelector(".q-side-stack");
+    railEl = panelEl.querySelector(".q-rail");
+    titleEl = panelEl.querySelector(".q-side-title");
+    const close = panelEl.querySelector(".q-side-close");
+    close.innerHTML = Q.icon ? Q.icon("close", 13) : "&times;";
+    close.addEventListener("click", ui.hidePanel);
+    wireGrip(panelEl.querySelector(".q-side-grip"));
+    applyWidth(Q.prefs().sideWidth);
+    renderRail();
     return panelEl;
   }
 
-  ui.registerPanel = function (id, title, render, icon) {
-    panels[id] = { id, title, render, icon: icon || null, el: null };
-    if (panelEl) renderTabs();
-  };
-
-  function renderTabs() {
-    const tabs = panelEl.querySelector(".q-panel-tabs");
-    tabs.innerHTML = Object.keys(panels)
-      .map((id) => '<div class="q-panel-tab' + (id === activePanel ? " sel" : "") +
-        '" data-id="' + id + '" title="' + Q.esc(panels[id].title) + '">' +
-        (panels[id].icon && Q.icon ? Q.icon(panels[id].icon, 14) : "") +
-        "<span>" + Q.esc(panels[id].title) + "</span></div>")
-      .join("") + '<div class="q-panel-close" title="Close">' +
-      (Q.icon ? Q.icon("close", 14) : "&times;") + "</div>";
-    tabs.querySelectorAll(".q-panel-tab").forEach((t) =>
-      t.addEventListener("click", () => ui.showPanel(t.dataset.id)));
-    tabs.querySelector(".q-panel-close").addEventListener("click", ui.hidePanel);
+  function renderRail() {
+    if (!railEl) return;
+    railEl.innerHTML = sections().map((p) => {
+      let k = "";
+      try { k = Q.keys.pretty(Q.keys.forCommand(p.id)); } catch (_) {}
+      return '<div class="q-rail-btn' + (p.id === activePanel ? " sel" : "") +
+        '" data-id="' + p.id + '" title="' + Q.esc(p.title + (k ? "   " + k : "")) + '">' +
+        (p.icon && Q.icon ? Q.icon(p.icon, 17) : Q.esc(p.title.slice(0, 1))) + "</div>";
+    }).join("");
+    railEl.querySelectorAll(".q-rail-btn").forEach((b) =>
+      b.addEventListener("click", () => ui.showPanel(b.dataset.id)));
   }
 
-  ui.showPanel = function (id) {
+  // order is explicit so the rail reads top to bottom in the order you use it
+  // in, rather than in whatever order the source files happen to load.
+  ui.registerPanel = function (id, title, render, icon, order) {
+    const prev = panels[id];
+    panels[id] = {
+      id, title, render, icon: icon || null,
+      order: order == null ? 50 : order,
+      el: prev ? prev.el : null,
+      drawn: false,
+    };
+    if (registered.indexOf(id) === -1) registered.push(id);
+    if (panelEl) renderRail();
+  };
+
+  ui.sections = () => sections().map((p) => p.id);
+  ui.sectionTitle = (id) => (panels[id] ? panels[id].title : "");
+  ui.activePanel = () =>
+    (panelEl && panelEl.classList.contains("q-open") ? activePanel : null);
+
+  ui.showPanel = function (id, force) {
     const p = panels[id];
     if (!p) return;
     ensurePanel();
     activePanel = id;
     document.body.classList.add("q-panel-open");
     panelEl.classList.add("q-open");
-    renderTabs();
-    const body = panelEl.querySelector(".q-panel-body");
-    body.innerHTML = "";
-    const out = p.render(body);
-    if (typeof out === "string") body.innerHTML = out;
-    else if (out instanceof Node) body.appendChild(out);
+    titleEl.textContent = p.title;
+
+    if (!p.el) {
+      p.el = Q.el("div", { class: "q-panel-body", "data-id": id });
+      p.el.hidden = true;
+      stackEl.appendChild(p.el);
+    }
+    sections().forEach((s) => {
+      if (!s.el) return;
+      const on = s.id === id;
+      s.el.classList.toggle("q-active", on);
+      s.el.hidden = !on;
+    });
+
+    if (!p.drawn || force) {
+      p.drawn = true;
+      // a section may have put its own class on the element last time round
+      p.el.className = "q-panel-body q-active";
+      p.el.innerHTML = "";
+      const out = p.render(p.el);
+      if (typeof out === "string") p.el.innerHTML = out;
+      else if (out instanceof Node) p.el.appendChild(out);
+    }
+    renderRail();
+    // only write when it actually changed: refreshPanel comes back through here
+    // on every document change and every git poll, and each setPref is a
+    // localStorage write plus a trip across the bridge.
+    const pr = Q.prefs();
+    if (!pr.sideOpen) Q.setPref("sideOpen", true);
+    if (pr.sideSection !== id) Q.setPref("sideSection", id);
+    Q.emit("sidebar", id);
   };
 
   ui.hidePanel = function () {
@@ -169,15 +266,40 @@
     panelEl.classList.remove("q-open");
     document.body.classList.remove("q-panel-open");
     activePanel = null;
+    renderRail();
+    if (Q.prefs().sideOpen) Q.setPref("sideOpen", false);
+    Q.emit("sidebar", null);
   };
 
   ui.togglePanel = function (id) {
-    if (activePanel === id && panelEl && panelEl.classList.contains("q-open")) ui.hidePanel();
+    if (ui.activePanel() === id) ui.hidePanel();
     else ui.showPanel(id);
   };
 
+  // the sidebar itself, on whichever section it was left on
+  ui.toggleSidebar = function () {
+    if (ui.activePanel()) return ui.hidePanel();
+    const want = Q.prefs().sideSection;
+    ui.showPanel(panels[want] ? want : ui.sections()[0]);
+  };
+
+  ui.cycleSection = function (delta) {
+    const ids = ui.sections();
+    if (!ids.length) return;
+    const at = ids.indexOf(activePanel);
+    ui.showPanel(ids[at === -1 ? 0 : (at + delta + ids.length) % ids.length]);
+  };
+
+  // called once at boot, after every section has registered itself
+  ui.restoreSidebar = function () {
+    if (!Q.prefs().sideOpen) return;
+    const want = Q.prefs().sideSection;
+    const id = panels[want] ? want : ui.sections()[0];
+    if (id) ui.showPanel(id);
+  };
+
   ui.refreshPanel = function (id) {
-    if (activePanel === id) ui.showPanel(id);
+    if (activePanel === id) ui.showPanel(id, true);
   };
 
   // ---- status bar -----------------------------------------------------------

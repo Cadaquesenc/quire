@@ -170,7 +170,7 @@
       body.querySelectorAll(".q-tag").forEach((el) =>
         el.addEventListener("click", () => searchTag(el.dataset.tag)));
     });
-  }, "tag");
+  }, "tag", 30);
 
   function searchTag(tag) {
     const root = Q.doc.root();

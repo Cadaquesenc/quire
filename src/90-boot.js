@@ -67,8 +67,8 @@
     const dir = Q.doc.dir();
     // the root is already the first crumb; when the file sits directly in it
     // there is no relative part to add, or the folder appears twice. and when
-    // the file is not under the root at all — an open document from anywhere
-    // else — the root is not its parent and must not be the first crumb, or the
+    // the file is not under the root at all, an open document from anywhere
+    // else, the root is not its parent and must not be the first crumb, or the
     // bar claims the file lives somewhere it does not.
     const inRoot = !!(root && dir && (dir === root || dir.indexOf(root + "/") === 0));
     const base = inRoot ? root : dir;
@@ -130,6 +130,31 @@
     }
     updateStatus();
   }
+
+  // ---- the sidebar ----------------------------------------------------------
+  //
+  // every section has its own key already (⌘⌥E files, ⌘⌥B backlinks, ⌘⌥G tags,
+  // ⌘⌥V git, ⌘⌥J terminal). these three are for the column itself: open it
+  // where you left it, and walk the rail without aiming at anything.
+  //
+  // the brackets and the backslash are free, the digits are not, ⌘⌥1-4 are the
+  // heading levels.
+
+  Q.command({
+    // not "sidebar": 30-editing already owns that id for the host's left one
+    id: "quireSidebar", title: "Sidebar", category: "Navigate", keys: "mod+alt+\\",
+    run: () => Q.ui.toggleSidebar(),
+  });
+
+  Q.command({
+    id: "sidebarNext", title: "Sidebar: next section", category: "Navigate", keys: "mod+alt+]",
+    run: () => Q.ui.cycleSection(1),
+  });
+
+  Q.command({
+    id: "sidebarPrev", title: "Sidebar: previous section", category: "Navigate", keys: "mod+alt+[",
+    run: () => Q.ui.cycleSection(-1),
+  });
 
   // ---- diagnostics ----------------------------------------------------------
 
@@ -225,14 +250,17 @@
         Q.git.refresh();
         findPandoc();
         Q.vaultRoot();   // resolves ~ over the shell, once
+        // the sidebar comes back where it was left. after the shell is up,
+        // because every section it could restore to needs one.
+        setTimeout(() => Q.ui.restoreSidebar(), 400);
       } else {
         Q.ui.slot("shell", { order: 99, side: "left", onClick: () => Q.run("diagnostics") })
           .set('<span class="q-bad">no shell</span>', "controller.runCommand did not answer");
       }
     });
 
-    Q.log("ready —", Q.commands().length, "commands");
-    Q.ui.toast("<b>Quire</b> — press <kbd>⌘⌥P</kbd>");
+    Q.log("ready:", Q.commands().length, "commands");
+    Q.ui.toast("<b>Quire</b> · press <kbd>⌘⌥P</kbd>");
   }
 
   boot();

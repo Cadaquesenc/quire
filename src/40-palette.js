@@ -178,7 +178,7 @@
       const taken = Q.keys.lookup(captured);
       if (taken && taken !== id) {
         const other = Q.getCommand(taken);
-        Q.ui.toast(Q.keys.pretty(captured) + " taken by <b>" + Q.esc(other ? other.title : taken) + "</b> — rebound");
+        Q.ui.toast(Q.keys.pretty(captured) + " taken by <b>" + Q.esc(other ? other.title : taken) + "</b>, rebound");
       }
       const prev = Q.keys.forCommand(id);
       if (prev && prev !== captured) Q.keys.unbind(prev);
@@ -213,7 +213,7 @@
                         a.c.title.localeCompare(b.c.title));
       const wrap = Q.el("div", { class: "q-keymap" });
       wrap.innerHTML =
-        '<p class="q-note">the host application cannot bind a shortcut on macos at all — ' +
+        '<p class="q-note">the host application cannot bind a shortcut on macos at all. ' +
         'its keybinding path is guarded by a node check that never passes here. ' +
         'click any row to set one.</p>' +
         '<table>' + rows.map((r) =>
@@ -224,7 +224,7 @@
       wrap.querySelectorAll("tr").forEach((tr) =>
         tr.addEventListener("click", () => { Q.ui.closeModal(); rebind(tr.dataset.id); }));
       Q.ui.modal({
-        title: "Keyboard shortcuts — " + Object.keys(bound).length + " bound",
+        title: "Keyboard shortcuts · " + Object.keys(bound).length + " bound",
         body: wrap, wide: true,
         buttons: [{ label: "Done", primary: true }],
       });

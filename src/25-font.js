@@ -2,7 +2,7 @@
 // quire / typeface
 //
 // discord's own face is gg sans, which discord streams from its cdn and does not
-// ship on disk — it is theirs, not redistributable, and it is not installed
+// ship on disk, it is theirs, not redistributable, and it is not installed
 // here. so the stack asks for it by name first, in case it ever is, and falls
 // back to Inter, which is what gg sans is closest to and is openly licensed.
 //
@@ -13,26 +13,26 @@
   const FONTS = [
     // the default. obsidian ships inter and sets it at 16px with generous
     // leading; that is what the rest of the ui is tuned against.
-    { id: "obsidian", label: "Obsidian — Inter",
+    { id: "obsidian", label: "Obsidian · Inter",
       stack: '"Inter", "InterVariable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
     { id: "operator", label: "Operator / MonoLisa mix",
       stack: '"Operator Mono", "Operator Mono Lig", "MonoLisa", "Victor Mono", "JetBrains Mono", ui-monospace, monospace' },
-    { id: "discord", label: "Discord — gg sans, else Inter",
+    { id: "discord", label: "Discord · gg sans, else Inter",
       stack: '"gg sans", "ggsans", "Inter", "InterVariable", -apple-system, sans-serif' },
     // the rounded system face. warmer than SF, and already on every mac.
-    { id: "cosy", label: "Cosy — SF Rounded",
+    { id: "cosy", label: "Cosy · SF Rounded",
       stack: '"SF Pro Rounded", "SFProRounded-Regular", ui-rounded, "Nunito", "Inter", -apple-system, sans-serif' },
     // what the app's own bundled themes reach for
-    { id: "typora", label: "Typora — Lato, Open Sans",
+    { id: "typora", label: "Typora · Lato, Open Sans",
       stack: '"Lato", "Open Sans", "Helvetica Neue", Helvetica, sans-serif' },
-    { id: "book", label: "Book — PT Serif",
+    { id: "book", label: "Book · PT Serif",
       stack: '"PT Serif", "Merriweather", "New York", Georgia, serif' },
     { id: "system", label: "System", stack: '-apple-system, BlinkMacSystemFont, sans-serif' },
     { id: "mono", label: "Mono", stack: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace' },
   ];
 
   // faces worth offering if the machine happens to have them. checked, not
-  // assumed — a css font-family that isn't installed fails silently, which is
+  // assumed, a css font-family that isn't installed fails silently, which is
   // the worst kind of setting.
   const CANDIDATES = [
     "Operator Mono", "MonoLisa", "Victor Mono",
@@ -139,7 +139,7 @@
         if (!v) { note.textContent = ""; note.className = "q-fontnote"; return; }
         const ok = probe(v);
         note.innerHTML = ok
-          ? "found — <span style=\"font-family:'" + v.replace(/'/g, "") + "'\">the quick brown fox</span>"
+          ? "found · <span style=\"font-family:'" + v.replace(/'/g, "") + "'\">the quick brown fox</span>"
           : "not installed on this mac";
         note.className = "q-fontnote " + (ok ? "ok" : "bad");
       };

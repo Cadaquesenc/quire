@@ -2,7 +2,7 @@
 // quire / icons
 //
 // phosphor, regular weight. the host ships font-awesome 4 and an icon font from
-// 2014 — both are fonts, so they inherit colour badly and blur at odd sizes.
+// 2014, both are fonts, so they inherit colour badly and blur at odd sizes.
 // these are inline svg, which means they take currentColor and stay sharp.
 //
 // phosphor rather than feather or lucide: those two are on every product built

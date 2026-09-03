@@ -1,7 +1,7 @@
 "use strict";
 // quire / editor commands
 //
-// every verb below already existed in the host runtime — File.editor.stylize,
+// every verb below already existed in the host runtime, File.editor.stylize,
 // .tableEdit, .library and friends. what did not exist was any list of them.
 // this is that list.
 

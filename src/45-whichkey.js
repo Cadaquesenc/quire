@@ -3,7 +3,7 @@
 //
 // lazyvim's best idea: hold the leader and it shows you what the next key does,
 // instead of making you remember. there is no leader key here, so the modifier
-// pair is the leader — hold ⌘⌥ and the grid appears; press the third key and it
+// pair is the leader, hold ⌘⌥ and the grid appears; press the third key and it
 // runs; let go and it never happened.
 //
 // the delay matters. show it instantly and it flashes on every real shortcut you
@@ -30,7 +30,7 @@
     if (!rows.length) return;
 
     // group by the command's own category, which is already how the palette
-    // organises itself — no second taxonomy to keep in sync
+    // organises itself, no second taxonomy to keep in sync
     const groups = {};
     rows.forEach((b) => (groups[b.cmd.category] = groups[b.cmd.category] || []).push(b));
 

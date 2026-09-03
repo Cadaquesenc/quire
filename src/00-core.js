@@ -4,7 +4,7 @@
 // every script under quire/ is loaded with defer, in filename order, from the
 // end of index.html. by the time this runs the host runtime has already
 // initialised, so window.File and File.editor exist. the document *text* does
-// not — that arrives later over the bridge — so anything reading content waits.
+// not, that arrives later over the bridge, so anything reading content waits.
 //
 // this file is the only place that talks to the native side directly. the rest
 // of the app goes through Q.
@@ -55,8 +55,8 @@ window.Q = (function () {
   // its `args` is a single string, not an argv array, and the native side hands
   // it to a shell. an array gets stringified on the way across and comes back as
   // a mangled two-line script, which is what made this look impossible at first.
-  // as a string it is a plain shell, so the whole toolchain on this machine —
-  // git, grep, curl, find — is reachable from the editor.
+  // as a string it is a plain shell, so the whole toolchain on this machine
+  // git, grep, curl, find, is reachable from the editor.
 
   let shellPromise = null;
   Q.shellAvailable = null;
@@ -86,7 +86,7 @@ window.Q = (function () {
 
   // the native handler waits for the command to exit and only then reads what
   // it wrote. a unix pipe holds 64 KB; past that the child blocks on write, the
-  // handler blocks on the child, and the promise never settles — the editor
+  // handler blocks on the child, and the promise never settles, the editor
   // just stops, with a stuck bash left behind. measured: 64000 bytes comes back
   // in 69ms, 70000 never comes back at all.
   //
@@ -111,11 +111,17 @@ window.Q = (function () {
   // newline on a chunk boundary.
   const CHUNK = 42000;                    // 42000 raw -> ~56000 base64
 
-  Q.shellBig = function (cmd, cwd, limit) {
+  // opts.raw keeps the bytes exactly as they came back: no trim, and the
+  // Uint8Array is handed over alongside the text. the file viewer needs that
+  // trimming a source file is a lie about its contents, and a reader that
+  // silently edits what it shows is the first step towards a writer that
+  // silently edits what it saves.
+  Q.shellBig = function (cmd, cwd, limit, opts) {
     const max = limit || 4000000;
     const tmp = '"${TMPDIR:-/tmp}/quire-' + Date.now().toString(36) +
       Math.random().toString(36).slice(2, 8) + '"';
     const bin = [];
+    let total = 0;
     const done = (r) => Q.shell("rm -f " + tmp, cwd).then(() => r);
 
     function chunk(off, size) {
@@ -131,15 +137,18 @@ window.Q = (function () {
 
     return Q.shell(`( ${cmd}\n) > ${tmp} 2>/dev/null; wc -c < ${tmp}`, cwd)
       .then((r) => {
-        const size = Math.min(parseInt(r.out, 10) || 0, max);
+        total = parseInt(r.out, 10) || 0;
+        const size = Math.min(total, max);
         return chunk(0, size);
       })
       .then(() => {
         const s = bin.join("");
         const bytes = new Uint8Array(s.length);
         for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i) & 0xff;
-        return { ok: true, code: 0, err: "",
-                 out: new TextDecoder("utf-8").decode(bytes).trim() };
+        const text = new TextDecoder("utf-8").decode(bytes);
+        return { ok: true, code: 0, err: "", bytes: bytes,
+                 size: total, truncated: total > bytes.length,
+                 out: opts && opts.raw ? text : text.trim() };
       })
       .then(done, (e) => done(null).then(() => { throw e; }));
   };
@@ -152,7 +161,7 @@ window.Q = (function () {
   };
 
   // the probe has to use a command whose *output* cannot appear in its own
-  // text — the first version tested for a literal echoed back, and matched the
+  // text, the first version tested for a literal echoed back, and matched the
   // shell's own error message quoting the command it had failed to run.
   Q.checkShell = function () {
     if (shellPromise) return shellPromise;
@@ -180,7 +189,7 @@ window.Q = (function () {
   const PREF_KEY = "quirePrefs";
   const DEFAULTS = {
     // the folder everything without a mounted sidebar falls back to. panels
-    // that search — files, tags, backlinks — need somewhere to look, and the
+    // that search, files, tags, backlinks, need somewhere to look, and the
     // host only ever gives them a root once you have explicitly opened a folder.
     vaultRoot: "~/Code",
     notesDir: "",              // for daily notes / capture. empty = ask once
@@ -190,6 +199,11 @@ window.Q = (function () {
     statusBar: true,
     proseStyle: false,         // our typography pass over the editor
     gitInStatusBar: true,
+    // the sidebar is one column with sections, and it remembers where it was.
+    // a workspace that forgets which panel you were in every launch is a popup.
+    sideOpen: false,
+    sideSection: "files",
+    sideWidth: 300,
   };
 
   let prefs = null;
@@ -333,7 +347,7 @@ window.Q = (function () {
 
   Q.sh = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";   // single-quote for bash
 
-  // a path shown relative to a folder — but only when it really is inside it.
+  // a path shown relative to a folder, but only when it really is inside it.
   // `startsWith(root)` is not that test: /Users/me/Code matches /Users/me/Codex
   // too, and slicing then eats the wrong first character.
   Q.rel = function (path, root) {
@@ -366,7 +380,7 @@ window.Q = (function () {
     "Pods", ".venv", "venv", "__pycache__", ".next", ".cache", "vendor",
   ];
   // for find: prune the directory before descending into it, which is the part
-  // that actually saves the time — -not -path still walks the whole tree.
+  // that actually saves the time, -not -path still walks the whole tree.
   Q.FIND_PRUNE =
     "\\( -type d \\( " + Q.SKIP.map((d) => "-name " + JSON.stringify(d)).join(" -o ") +
     " \\) -prune \\) -o";

@@ -45,12 +45,85 @@
         (s.dirty ? '<span class="q-git-dirty">' + s.dirty + "</span>" : ""),
         s.dirty ? s.dirty + " changed file(s) on " + s.branch : "clean · " + s.branch
       );
+      Q.ui.refreshPanel("git");
     });
   }, 400);
 
   git.refresh = refresh;
   Q.on("doc", refresh);
   Q.on("saved", refresh);
+
+  // ---- the sidebar section --------------------------------------------------
+  //
+  // git was the one feature here with nowhere to live: a cell in the status bar
+  // and three modals off the palette. now it is a section like the rest, the
+  // branch, what has changed, and a click through to any of it.
+
+  const CODES = {
+    "?": "new", "A": "added", "M": "modified", "D": "deleted",
+    "R": "renamed", "C": "copied", "U": "conflict", "!": "ignored",
+  };
+
+  function statusRow(line) {
+    // porcelain: two status columns, a space, then the path
+    const x = line.charAt(0), y = line.charAt(1);
+    let path = line.slice(3);
+    const arrow = path.indexOf(" -> ");
+    if (arrow !== -1) path = path.slice(arrow + 4);
+    if (path.charAt(0) === '"') { try { path = JSON.parse(path); } catch (_) {} }
+    const code = (x !== " " && x !== "?" ? x : y !== " " ? y : x);
+    return {
+      path, staged: x !== " " && x !== "?",
+      code, label: CODES[code] || code,
+    };
+  }
+
+  Q.ui.registerPanel("git", "Git", function (body) {
+    body.innerHTML = '<div class="q-panel-loading">reading…</div>';
+    Promise.all([git.status(), git.root()]).then(([s, top]) => {
+      if (!s) {
+        body.innerHTML = '<div class="q-panel-empty">' +
+          Q.esc(Q.doc.dir() || "this folder") + "<br>is not a git repository.</div>";
+        return;
+      }
+      // porcelain paths are relative to the repo root
+      const rows = s.files.map(statusRow);
+      const abs = (p) => (top ? top + "/" + p : p);
+      body.innerHTML =
+        '<div class="q-git-head">' +
+          '<span class="q-git-b">' + Q.icon("branch", 13) + Q.esc(s.branch) + "</span>" +
+          '<span class="q-git-n">' + (s.dirty ? s.dirty + " changed" : "clean") + "</span>" +
+        "</div>" +
+        '<div class="q-git-acts">' +
+          '<span class="q-git-act" data-cmd="gitCommit">commit all…</span>' +
+          '<span class="q-git-act" data-cmd="gitDiff">diff this file</span>' +
+          '<span class="q-git-act" data-cmd="gitLog">history</span>' +
+        "</div>" +
+        (rows.length
+          ? '<div class="q-git-list">' + rows.map((r) =>
+              '<div class="q-git-row' + (r.staged ? " staged" : "") + '" data-p="' +
+              Q.esc(abs(r.path)) + '">' +
+              '<span class="q-git-code ' + Q.esc(r.label) + '">' + Q.esc(r.code) + "</span>" +
+              '<span class="q-git-path">' + Q.esc(r.path) + "</span>" +
+              '<span class="q-git-what">' + Q.esc(r.label) + "</span>" +
+              "</div>").join("") + "</div>"
+          : '<div class="q-panel-empty">working tree clean.</div>');
+
+      body.querySelectorAll(".q-git-act").forEach((el) =>
+        el.addEventListener("click", () => Q.run(el.dataset.cmd)));
+      // a changed file opens the same way it would from the files section:
+      // markdown to the editor, anything else to the read-only pane.
+      body.querySelectorAll(".q-git-row").forEach((el) =>
+        el.addEventListener("click", () => Q.openPath(el.dataset.p)));
+    }).catch((e) => {
+      body.innerHTML = '<div class="q-panel-empty">' + Q.esc(e.message) + "</div>";
+    });
+  }, "branch", 40);
+
+  Q.command({
+    id: "git", title: "Git", category: "Git", keys: "mod+alt+v",
+    run: () => Q.ui.togglePanel("git"),
+  });
 
   // ---- commands -------------------------------------------------------------
 

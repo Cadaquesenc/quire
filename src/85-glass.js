@@ -55,7 +55,7 @@
     id: "glassOpacity", title: "Window opacity…", category: "View",
     run: () => {
       const c = conf();
-      return Q.ui.prompt("Opacity — 0 is clear, 1 is solid", String(c.alpha), "0.65").then((v) => {
+      return Q.ui.prompt("Opacity · 0 is clear, 1 is solid", String(c.alpha), "0.65").then((v) => {
         if (v === null) return;
         const n = parseFloat(v);
         if (isNaN(n) || n < 0 || n > 1) return Q.ui.error("give a number between 0 and 1");
