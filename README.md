@@ -57,7 +57,7 @@ message quotes the command it failed to run. the test matched its own input.
 as a string it's a plain shell. so backlinks, tags, git and the note index all
 run on grep, find and git — through a handler written to run pandoc.
 
-## what quire adds
+## what quire adds as of now
 
 **command palette** — `⌘⌥P`. 91 commands. the host has no command registry at
 all: its menus are native `NSMenu` items whose actions are hardcoded javascript
